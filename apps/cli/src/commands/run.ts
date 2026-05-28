@@ -22,12 +22,12 @@ interface RunCommandOptions {
 
 export async function runCommand(options: RunCommandOptions): Promise<void> {
   try {
-    const { orchestrator, config, eventBus } = await bootstrap(options.dir);
+    const { orchestrator, config, eventBus, resolvedDir } = await bootstrap(options.dir);
 
     // 1. Resolve tasks JSON file
     const taskFilePath = options.file
-      ? path.resolve(options.dir, options.file)
-      : path.join(options.dir, 'metacli-tasks.json');
+      ? path.resolve(resolvedDir, options.file)
+      : path.join(resolvedDir, 'metacli-tasks.json');
 
     let nodes: TaskNode[] = [];
 
@@ -61,13 +61,13 @@ export async function runCommand(options: RunCommandOptions): Promise<void> {
 
     console.log(`⚙◆ Initializing MetaCLI Workflow Engine...`);
     console.log(`• Active Security Mode: ${(options.mode ?? config.security.mode).toUpperCase()}`);
-    console.log(`• Workspace Containment: ${options.dir}\n`);
+    console.log(`• Workspace Containment: ${resolvedDir}\n`);
 
     // 2. Wires Relational database store
-    const store = new BrainStore(options.dir);
+    const store = new BrainStore(resolvedDir);
 
     // 3. Instantiate WorkflowEngine E2E
-    const engine = new WorkflowEngine(orchestrator, store, options.dir, {
+    const engine = new WorkflowEngine(orchestrator, store, resolvedDir, {
       securityMode: options.mode ?? config.security.mode,
       allowedPaths: config.security.allowedPaths,
       blockedPaths: config.security.blockedPaths,

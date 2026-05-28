@@ -10,14 +10,14 @@ interface DashboardCommandOptions {
 
 export async function dashboardCommand(options: DashboardCommandOptions): Promise<void> {
   try {
-    const { orchestrator, eventBus } = await bootstrap(options.dir);
+    const { orchestrator, eventBus, resolvedDir } = await bootstrap(options.dir);
 
     // Boot conversation-first UI
     const { waitUntilExit } = render(
       React.createElement(ConversationRuntime, {
         orchestrator,
         eventBus,
-        workingDirectory: options.dir,
+        workingDirectory: resolvedDir,
       }),
     );
 

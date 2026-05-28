@@ -28,9 +28,27 @@ export interface BootstrapResult {
   healthScorer: HealthScorer;
   cooldownManager: CooldownManager;
   storage: GlobalStorage;
+  resolvedDir: string;
+}
+
+export function findProjectRoot(startDir: string): string {
+  let dir = startDir;
+  while (true) {
+    if (fs.existsSync(path.join(dir, '.metacli')) || fs.existsSync(path.join(dir, '.git'))) {
+      return dir;
+    }
+    const parent = path.dirname(dir);
+    if (parent === dir) {
+      break;
+    }
+    dir = parent;
+  }
+  return startDir;
 }
 
 export async function bootstrap(cwd: string = process.cwd()): Promise<BootstrapResult> {
+  const resolvedCwd = findProjectRoot(cwd);
+
   // 1. Initialize Global Storage & Event Bus
   const storage = new GlobalStorage();
   const eventBus = new EventBus<MetaCLIEvents>();
@@ -41,12 +59,11 @@ export async function bootstrap(cwd: string = process.cwd()): Promise<BootstrapR
   
   if (setupResult.isFirstTime && !process.env.METACLI_SKIP_SETUP) {
     console.log(chalk.bold.cyan('\nMetaCLI — First-time Initialization\n'));
-    // We don't block, but we can emit or log that we're setting up
   }
 
-  // 3. Load configuration
+  // 3. Load configuration from the resolved project root
   const configLoader = new ConfigLoader();
-  const config = await configLoader.load(cwd);
+  const config = await configLoader.load(resolvedCwd);
 
   // 4. Initialize the orchestrator
   const orchestrator = new Orchestrator(config, eventBus);
@@ -88,6 +105,7 @@ export async function bootstrap(cwd: string = process.cwd()): Promise<BootstrapR
     healthScorer,
     cooldownManager,
     storage,
+    resolvedDir: resolvedCwd,
   };
 }
 

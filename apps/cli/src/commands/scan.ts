@@ -14,11 +14,11 @@ export async function scanCommand(options: ScanCommandOptions): Promise<void> {
   let store: BrainStore | null = null;
 
   try {
-    const { eventBus } = await bootstrap(workingDir);
+    const { eventBus, resolvedDir } = await bootstrap(workingDir);
     
     // Create the persistence and scanner instances
-    store = new BrainStore(workingDir);
-    const scanner = new WorkspaceScanner(workingDir, store, eventBus);
+    store = new BrainStore(resolvedDir);
+    const scanner = new WorkspaceScanner(resolvedDir, store, eventBus);
 
     // Render the visual progress scanner UI
     const { waitUntilExit } = render(

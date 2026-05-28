@@ -23,7 +23,7 @@ interface AskCommandOptions {
 
 export async function askCommand(prompt: string, options: AskCommandOptions): Promise<void> {
   try {
-    const { orchestrator, eventBus } = await bootstrap(options.dir);
+    const { orchestrator, eventBus, resolvedDir } = await bootstrap(options.dir);
 
     // Detect available providers first
     const providers = await orchestrator.detectProviders();
@@ -48,7 +48,7 @@ export async function askCommand(prompt: string, options: AskCommandOptions): Pr
         eventBus,
         prompt,
         preferredProvider: options.provider,
-        workingDirectory: options.dir,
+        workingDirectory: resolvedDir,
         files: options.files,
         systemPrompt: options.system,
         verbose: options.verbose ?? false,

@@ -8,6 +8,7 @@
 import path from 'node:path';
 import fs from 'node:fs';
 import { BrainStore } from '@metacli/brain';
+import { findProjectRoot } from '../bootstrap.js';
 
 interface AuditCommandOptions {
   dir: string;
@@ -15,7 +16,8 @@ interface AuditCommandOptions {
 }
 
 export async function auditCommand(options: AuditCommandOptions): Promise<void> {
-  const dbPath = path.join(options.dir, '.metacli', 'brain.db');
+  const resolvedDir = findProjectRoot(options.dir);
+  const dbPath = path.join(resolvedDir, '.metacli', 'brain.db');
 
   if (!fs.existsSync(dbPath)) {
     console.log('\n📋 No execution audit database discovered. Run a workflow or command first!\n');
@@ -23,7 +25,7 @@ export async function auditCommand(options: AuditCommandOptions): Promise<void> 
   }
 
   try {
-    const store = new BrainStore(options.dir);
+    const store = new BrainStore(resolvedDir);
     const audits = store.getAllExecutionAudits();
     store.close();
 
