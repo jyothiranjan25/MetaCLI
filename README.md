@@ -38,6 +38,26 @@ Rather than calling raw provider APIs, MetaCLI orchestrates official, local AI C
 * **Active Routing**: Evaluates EMA health scores and schedules specialized providers based on prompt profiles.
 * **Context-Preserved Handover**: If a provider hits a rate limit (`429`) or credential failure, the engine automatically routes the **exact same context-rich PromptRequest** (containing all pre-compiled AST lines and similarity memories) to a healthy backup provider in fractions of a second without restarting from scratch.
 
+### 5. 🧠 Sovereign Cognitive Engineering Intelligence Layer (17 Subsystems)
+MetaCLI incorporates an active cognitive layer (fully tested in `packages/brain/src/cognitive/cognitive.test.ts`) that transforms raw AI execution into an adaptive engineering intelligence runtime:
+* **Developer DNA Profile (`DeveloperDNAEngine`)**: Learns stylistic styling rules, spacing, and casing from edits to adapt formatting.
+* **Temporal Engineering Analytics (`TemporalEngineeringAnalyzer`)**: Forecasts modular codebase complexity trends and drift velocities.
+* **Blast Radius Simulation (`RepositorySimulationEngine`)**: Calculates potential risk maps and dependency impacts before changes.
+* **Engineering State Tracking (`EngineeringStateAnalyzer`)**: Gauges developer mood/flow states from event metrics to dynamically scale prompts.
+* **Architectural Proposal Guard (`RefactorSafetyEngine`)**: Scores refactoring safety factors and warns on risky or destructive plans.
+* **Dependency Decay & Threat Detection (`ThreatDetectionEngine`)**: Highlights circular references, unstable couplings, and code smell patterns.
+* **Milestone Narrator (`ProjectNarrativeEngine`)**: Translates chronological epochs into descriptive, human-readable codebase evolution logs.
+* **Semantic Hybrid Search (`SemanticRepositorySearchEngine`)**: Employs query-intent parsing to blend structural keyword rankings with AST similarity.
+* **Architectural Intent Capture (`EngineeringReasoningEngine`)**: Stores commit reasoning ("WHY" a file changed, not just "WHAT" changed) in SQLite.
+* **Self-Decaying Memories (`SelfCuratingBrainEngine`)**: Reduces confidence coefficients of stale knowledge bases as code changes over time.
+* **Living Documentation Compiler (`KnowledgeDistillationEngine`)**: Dynamically summarizes full-module AST architectures into readable Markdown specs.
+* **Distributed State Sync (`DistributedSynchronizationEngine`)**: Reconciles local memory database deltas seamlessly across remote team machines.
+* **Long-Term Roadmap Director (`StrategicProjectUnderstandingEngine`)**: Extracts macroeconomic themes to propose architecture evolution directives.
+* **Visual Graph Engine (`ArchitectureGraphRuntime`)**: Feeds active symbol dependency traversals to `/graph` ASCII viewport maps.
+* **Cascading Session Compactor (`HierarchicalCompressionEngine`)**: Condenses long chat feeds into multi-tier session summaries to save tokens.
+* **Crash & Failure Learner (`FailureLearningEngine`)**: Records stack traces and revert histories to formulate compile-time safety rules.
+* **Topological Snapshot Diff (`ArchitectureSnapshotEngine`)**: Computes structural AST changes between major codebase milestones.
+
 ---
 
 ## 📂 Monorepo Directory Architecture
@@ -48,7 +68,22 @@ MetaCLI (Monorepo)
 │   └── cli/                ← React Ink CLI binary entry point, TUI dashboards, & Overlays
 └── packages/
     ├── core/               ← Orchestration, PathGuard, EnvironmentSanitizer, and FallbackEngine
-    ├── brain/              ← AST parser, sqlite brain.db, memories, and timelines
+    ├── brain/              ← AST parser, sqlite brain.db, memories, timelines & cognitive engines
+    │   └── src/cognitive/  ← 🧠 Sovereign Cognitive Engineering Intelligence Layer (17 Subsystems)
+    │       ├── adaptation/  ← Developer DNA stylistic preference learning (DeveloperDNAEngine.ts)
+    │       ├── analytics/   ← Codebase complexity drift analytics (TemporalEngineeringAnalyzer.ts)
+    │       ├── distillation/← AST to Markdown living document compilers (KnowledgeDistillationEngine.ts)
+    │       ├── distributed/ ← Multi-machine SQLite memory synchronization (DistributedSynchronizationEngine.ts)
+    │       ├── learning/    ← Failure crash constraints & defensive rules (FailureLearningEngine.ts)
+    │       ├── memory/      ← Curated, compressed memories & snapshots (SelfCuratingBrainEngine.ts, etc.)
+    │       ├── narrative/   ← Historical epic milestones & strategic roadmaps (ProjectNarrativeEngine.ts)
+    │       ├── reasoning/   ← Multi-intent commit rationale recorders (EngineeringReasoningEngine.ts)
+    │       ├── refactor/    ← Proposal safety assessments & rules evaluators (RefactorSafetyEngine.ts)
+    │       ├── search/      ← Hybrid semantic and token rank query parsers (SemanticRepositorySearchEngine.ts)
+    │       ├── simulation/  ← Blast-radius change impact simulators (RepositorySimulationEngine.ts)
+    │       ├── state/       ← Session state/developer flow monitors (EngineeringStateAnalyzer.ts)
+    │       ├── threat/      ← Circular dependency & unstable coupling inspectors (ThreatDetectionEngine.ts)
+    │       └── visualization/← Active topological view viewport partitioners (ArchitectureGraphRuntime.ts)
     ├── adapters/           ← Subprocess wrappers for Claude, Gemini, Codex, and OpenCode
     ├── telemetry/          ← Observability track, UsageTracker, and HealthScorer
     ├── workflow/           ← DAG graph scheduler & GitSnapshotEngine
