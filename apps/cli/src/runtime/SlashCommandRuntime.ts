@@ -28,6 +28,8 @@ export type OverlayId =
   | 'sessions'
   | 'memory'
   | 'graph'
+  | 'map'
+  | 'timeline'
   | 'context'
   | 'telemetry'
   | 'workflows'

@@ -85,6 +85,22 @@ export const SLASH_COMMANDS: SlashCommand[] = [
     requiresBrain: true,
   },
   {
+    name: 'map',
+    description: 'Repository topology map',
+    category: 'navigation',
+    aliases: ['topology', 'repo-map'],
+    opensOverlay: 'map',
+    requiresBrain: true,
+  },
+  {
+    name: 'timeline',
+    description: 'Project evolution timeline',
+    category: 'navigation',
+    aliases: ['evolution', 'history-map'],
+    opensOverlay: 'timeline',
+    requiresBrain: true,
+  },
+  {
     name: 'context',
     description: 'Active retrieval context inspector',
     category: 'navigation',

@@ -14,6 +14,8 @@ import { HelpOverlay } from './overlays/HelpOverlay.js';
 import { SessionsOverlay } from './overlays/SessionsOverlay.js';
 import { MemoryOverlay } from './overlays/MemoryOverlay.js';
 import { GraphOverlay } from './overlays/GraphOverlay.js';
+import { MapOverlay } from './overlays/MapOverlay.js';
+import { TimelineOverlay } from './overlays/TimelineOverlay.js';
 import { ContextOverlay } from './overlays/ContextOverlay.js';
 import { TelemetryOverlay } from './overlays/TelemetryOverlay.js';
 import { WorkflowsOverlay } from './overlays/WorkflowsOverlay.js';
@@ -48,6 +50,8 @@ const OVERLAY_TITLES: Partial<Record<NonNullable<OverlayId>, string>> = {
   sessions: 'Session Timeline',
   memory: 'Memory Inspector',
   graph: 'Architecture Graph',
+  map: 'Repository Topology',
+  timeline: 'Project Evolution',
   context: 'Retrieval Context',
   telemetry: 'Telemetry',
   workflows: 'Workflows',
@@ -120,6 +124,12 @@ export function OverlayManager({ activeOverlay, context, onClose }: OverlayManag
       case 'graph':
         return <GraphOverlay workingDirectory={context.workingDirectory} />;
 
+      case 'map':
+        return <MapOverlay workingDirectory={context.workingDirectory} />;
+
+      case 'timeline':
+        return <TimelineOverlay workingDirectory={context.workingDirectory} />;
+
       case 'context':
         return <ContextOverlay />;
 
@@ -149,13 +159,13 @@ export function OverlayManager({ activeOverlay, context, onClose }: OverlayManag
   return (
     <Box
       flexDirection="column"
-      borderStyle="round"
-      borderColor="gray"
-      paddingX={1}
+      paddingX={2}
       paddingY={0}
       marginBottom={1}
     >
+      <Text color="gray" dimColor>{'─'.repeat(78)}</Text>
       {renderOverlay()}
+      <Text color="gray" dimColor>{'─'.repeat(78)}</Text>
     </Box>
   );
 }

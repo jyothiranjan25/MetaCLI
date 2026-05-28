@@ -72,20 +72,20 @@ export function CommandPalette({ runtime, onExecute, onClose }: CommandPalettePr
   const recent = runtime.getRecentCommands(3);
 
   return (
-    <Box flexDirection="column" borderStyle="round" borderColor="cyan" paddingX={1} paddingY={0}>
-      {/* Palette header */}
+    <Box flexDirection="column" paddingX={2} paddingY={0} marginTop={1} marginBottom={1}>
       <Box gap={1} marginBottom={0}>
-        <Text color="cyan">⌘</Text>
-        <Text bold color="white">Command Palette</Text>
-        <Text color="gray" dimColor>  ESC to close  •  ↑↓ navigate  •  Enter to execute</Text>
+        <Text color="cyan">Search</Text>
+        <Text bold color="white">Commands Workflows Memories Files Architecture</Text>
+        <Text color="gray" dimColor>  ESC close  ↑↓ navigate  Enter execute</Text>
       </Box>
 
-      {/* Search input */}
-      <Box borderStyle="single" borderColor={query ? 'cyan' : 'gray'} paddingX={1} marginTop={0} marginBottom={0}>
-        <Text color="gray">/</Text>
+      <Text color="gray" dimColor>{'─'.repeat(78)}</Text>
+
+      <Box paddingX={0} marginTop={0} marginBottom={0}>
+        <Text color="cyan">› </Text>
         <Text>{query}</Text>
-        <Text color="cyan" dimColor>█</Text>
-        {!query && <Text color="gray" dimColor> search commands...</Text>}
+        <Text color="green">▌</Text>
+        {!query && <Text color="gray" dimColor> search anything...</Text>}
       </Box>
 
       {/* Recent commands (when no query) */}
