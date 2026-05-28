@@ -191,3 +191,40 @@ export {
   type EvolutionEvent,
 } from './cognitive/timeline/CognitiveTimelineRuntime.js';
 
+// Production Intelligence Refinement Layer
+export {
+  ProviderExecutionProfiles,
+  type ProviderProfile,
+  type ProviderAdaptation,
+} from './orchestrator/ProviderExecutionProfiles.js';
+export {
+  CollaborativeProviderRuntime,
+  type CollaborativeTask,
+  type CollaborativeResult,
+  type TaskExecutorFn,
+  type WorkflowContext,
+} from './orchestrator/CollaborativeProviderRuntime.js';
+export {
+  EngineeringExplainabilityRuntime,
+  type DecisionTrace,
+  type ExplainReport,
+} from './orchestrator/EngineeringExplainabilityRuntime.js';
+export {
+  RecoveryIntelligenceEngine,
+  type ExecutionCheckpoint,
+  type RecoveryStrategy,
+  type RecoveryDecision,
+  type RecoveryResult,
+} from './orchestrator/RecoveryIntelligenceEngine.js';
+export {
+  CognitivePerformanceRuntime,
+  type PerformanceSnapshot,
+  type LatencySample,
+} from './orchestrator/CognitivePerformanceRuntime.js';
+export {
+  LiveEngineeringMonitor,
+  type EngineeringHealthMetrics,
+  type RiskAlert,
+  type MonitorConfig,
+} from './cognitive/LiveEngineeringMonitor.js';
+

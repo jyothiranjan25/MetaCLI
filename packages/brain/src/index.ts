@@ -48,3 +48,22 @@ export { ProjectNarrativeEngine, type NarrativeEpoch } from './cognitive/narrati
 export { SemanticRepositorySearchEngine, type SearchResult } from './cognitive/search/SemanticRepositorySearchEngine.js';
 export { DistributedSynchronizationEngine, type SyncStatus } from './cognitive/distributed/DistributedSynchronizationEngine.js';
 
+// Production Intelligence Refinement Layer
+export {
+  MemoryGovernanceEngine,
+  type GovernanceStats,
+  type GovernanceConfig,
+  type GovernanceBrainStore,
+} from './memory/MemoryGovernanceEngine.js';
+export {
+  FederatedKnowledgeRuntime,
+  type FederatedKnowledgeQuery,
+  type FederatedKnowledgeEntry,
+  type FederatedQueryResult,
+} from './memory/FederatedKnowledgeRuntime.js';
+export {
+  RepositoryScalingRuntime,
+  type SubGraph,
+  type ScalingConfig,
+} from './indexing/RepositoryScalingRuntime.js';
+
