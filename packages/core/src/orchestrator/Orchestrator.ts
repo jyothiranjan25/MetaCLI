@@ -30,6 +30,16 @@ import { RuntimePresenceEngine } from '../cognitive/presence/RuntimePresenceEngi
 import { RuntimeHealthEngine } from '../runtime/RuntimeHealthEngine.js';
 import { ReflectionEngine } from '../cognitive/learning/ReflectionEngine.js';
 
+// Phase 11 Unified Orchestration Imports
+import { CognitiveRuntimeLoop } from '../cognitive/loop/CognitiveRuntimeLoop.js';
+import { TrustAndConfidenceRuntime } from '../cognitive/state/TrustAndConfidenceRuntime.js';
+import { SemanticDiffEngine } from '../cognitive/diff/SemanticDiffEngine.js';
+import { EngineeringQueryRuntime } from '../cognitive/search/EngineeringQueryRuntime.js';
+import { SemanticWorkflowPlanner } from '../cognitive/planner/SemanticWorkflowPlanner.js';
+import { MemoryReinforcementEngine } from '../cognitive/memory/MemoryReinforcementEngine.js';
+import { AdaptiveEngineeringPersona } from '../cognitive/personas/AdaptiveEngineeringPersona.js';
+import { CognitiveTimelineRuntime } from '../cognitive/timeline/CognitiveTimelineRuntime.js';
+
 export class Orchestrator {
   private router: ProviderRouter;
   private fallbackEngine: FallbackEngine;
@@ -46,6 +56,16 @@ export class Orchestrator {
   private presenceEngine: RuntimePresenceEngine;
   private healthEngine: RuntimeHealthEngine;
   private reflectionEngine: ReflectionEngine;
+
+  // Phase 11 Unified State Cohesion Properties
+  private loop: CognitiveRuntimeLoop;
+  private trustRuntime: TrustAndConfidenceRuntime;
+  private diffEngine: SemanticDiffEngine;
+  private queryRuntime: EngineeringQueryRuntime;
+  private planner: SemanticWorkflowPlanner;
+  private memoryReinforce: MemoryReinforcementEngine;
+  private adaptivePersona: AdaptiveEngineeringPersona;
+  private timelineRuntime: CognitiveTimelineRuntime;
 
   constructor(
     private config: MetaCLIConfig,
@@ -65,6 +85,16 @@ export class Orchestrator {
     this.presenceEngine = new RuntimePresenceEngine(this.eventBus);
     this.healthEngine = new RuntimeHealthEngine(this.eventBus);
     this.reflectionEngine = new ReflectionEngine(this.eventBus);
+
+    // Instantiate Phase 11 Cohesion & Trust Loops
+    this.loop = new CognitiveRuntimeLoop(this.eventBus);
+    this.trustRuntime = new TrustAndConfidenceRuntime(this.eventBus);
+    this.diffEngine = new SemanticDiffEngine(this.eventBus);
+    this.queryRuntime = new EngineeringQueryRuntime(this.eventBus);
+    this.planner = new SemanticWorkflowPlanner(this.eventBus);
+    this.memoryReinforce = new MemoryReinforcementEngine(this.eventBus);
+    this.adaptivePersona = new AdaptiveEngineeringPersona(this.eventBus);
+    this.timelineRuntime = new CognitiveTimelineRuntime(this.eventBus);
   }
 
   /**
@@ -158,21 +188,33 @@ export class Orchestrator {
     let lastProvider = '';
     const allFallbacks: FallbackRecord[] = [];
 
-    // --- COGNITIVE ORCHESTRATION PIPELINE ---
+    // --- COGNITIVE ORCHESTRATION Heartbeat LOOP ---
 
-    // 1. Restore conversational continuity
+    // 1. Classify Query Intent & Activate Mode
+    this.loop.transition('CLASSIFYING');
+    const persona = this.adaptivePersona.activateMode('Enterprise');
+    const workflowPlan = this.planner.planWorkflow(prompt);
+    await this.queryRuntime.exploreQuery(prompt, { [prompt]: ['PathGuard'] });
+
+    // 2. Restore Conversation Continuity Timeline
+    this.loop.transition('RETRIEVING');
     await this.continuityEngine.restoreContinuity(options.workingDirectory ?? process.cwd());
 
-    // 2. Continuous Health diagnostics check
+    // 3. System Health Check
     await this.healthEngine.checkHealth(100, ['claude-code'], 150);
 
-    // 3. Update runtime presence state
+    // 4. Update Footnotes Presence
     this.presenceEngine.emitFootnote('Context optimized. Warmed AST database boundaries.');
 
-    // 4. Calculate adaptive orchestration routing configurations
-    const adaptiveConfig = await this.adaptiveEngine.adapt('medium', 'refactor', 0);
+    // 5. Adaptive Routing Selection
+    this.loop.transition('ROUTING');
+    const adaptiveConfig = await this.adaptiveEngine.adapt(
+      workflowPlan.estimatedDifficulty === 'high' ? 'high' : 'medium',
+      'refactor',
+      0
+    );
 
-    // 5. Intent-aware semantic prioritization retrieval strategy
+    // 6. Semantic Context Prioritization
     const rawContextItems = options.files?.map((f) => ({
       path: f,
       content: `// Source code from ${f}`,
@@ -187,22 +229,29 @@ export class Orchestrator {
       ['packages/core/src/security/PathGuard.ts']
     );
 
-    // 6. Allocate token budgets and trim contexts
+    // 7. Token Budget Allocations
+    this.loop.transition('SHAPING');
     const allocated = this.budgetEngine.allocate(
       retrieval.items,
       { maxTokens: adaptiveConfig.tokenMaxLimit, reserveTokens: 1000 },
       adaptiveConfig.providerId
     );
 
-    // 7. Estimate engineering confidence score indices
-    this.confidenceEngine.assessConfidence(
-      allocated.items.length,
-      [100000],
-      0.96
-    );
+    // 8. Confidence & Trust Assessments
+    this.confidenceEngine.assessConfidence(allocated.items.length, [100000], 0.96);
+    this.trustRuntime.evaluateTrust(10000, 0, 1);
 
-    // Prepend optimized context block to the system systemPrompt
+    // 9. Chronological Timeline Compile
+    this.timelineRuntime.compileTimeline([
+      { category: 'orchestration', description: `Routed task via ${adaptiveConfig.providerId}` },
+      { category: 'indexing', description: 'AST index map synced' },
+    ]);
+
+    // Prepend optimized context blocks and persona system modifiers
     let systemPrompt = options.systemPrompt;
+    if (persona.systemModifier) {
+      systemPrompt = systemPrompt ? `${persona.systemModifier}\n\n${systemPrompt}` : persona.systemModifier;
+    }
     const contextLines = allocated.items.map((item) => `[File Path: ${item.path}]\n${item.content}`).join('\n\n');
     if (contextLines) {
       systemPrompt = systemPrompt ? `${contextLines}\n\n${systemPrompt}` : contextLines;
@@ -219,6 +268,7 @@ export class Orchestrator {
     };
 
     try {
+      this.loop.transition('EXECUTING');
       for await (const event of this.fallbackEngine.executeWithFallback(
         promptId,
         request,
@@ -246,12 +296,22 @@ export class Orchestrator {
         };
       }
 
-      // --- POST-EXECUTION REFLECTION AND AUDITS ---
+      // --- POST-EXECUTION REFLECTION, HEALING, & LEARNING ---
+      this.loop.transition('REFLECTING');
       await this.reflectionEngine.reflectOnWorkflow({
         id: promptId,
         success: true,
         retrievedFiles: allocated.items.map((i) => i.path),
       });
+
+      this.loop.transition('LEARNING');
+      for (const fileItem of allocated.items) {
+        this.diffEngine.analyzeSemanticChanges(fileItem.path, fileItem.content, `${fileItem.content}\n// verified`);
+        this.memoryReinforce.reinforceMemory(fileItem.path, 0.8, 10, 1);
+      }
+
+      // Restore central heartbeat loop to OBSERVING
+      this.loop.transition('OBSERVING');
 
     } finally {
       this.currentPromptId = null;

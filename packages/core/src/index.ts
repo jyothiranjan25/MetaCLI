@@ -155,3 +155,39 @@ export {
   type PersonaConfig,
 } from './cognitive/personas/PersonaEngine.js';
 
+// Unified Cohesion & Trust Subsystems
+export {
+  CognitiveRuntimeLoop,
+  type LoopState,
+} from './cognitive/loop/CognitiveRuntimeLoop.js';
+export {
+  TrustAndConfidenceRuntime,
+  type TrustReport,
+} from './cognitive/state/TrustAndConfidenceRuntime.js';
+export {
+  SemanticDiffEngine,
+  type SemanticImpactReport,
+} from './cognitive/diff/SemanticDiffEngine.js';
+export {
+  EngineeringQueryRuntime,
+  type QueryTrace,
+} from './cognitive/search/EngineeringQueryRuntime.js';
+export {
+  SemanticWorkflowPlanner,
+  type PlannedTaskNode,
+  type WorkflowPlan,
+} from './cognitive/planner/SemanticWorkflowPlanner.js';
+export {
+  MemoryReinforcementEngine,
+  type ReinforcedMemory,
+} from './cognitive/memory/MemoryReinforcementEngine.js';
+export {
+  AdaptiveEngineeringPersona,
+  type ProjectMode,
+  type PersonaAttributes,
+} from './cognitive/personas/AdaptiveEngineeringPersona.js';
+export {
+  CognitiveTimelineRuntime,
+  type EvolutionEvent,
+} from './cognitive/timeline/CognitiveTimelineRuntime.js';
+

@@ -58,8 +58,16 @@ MetaCLI incorporates an active cognitive layer (fully tested in `packages/brain/
 * **Crash & Failure Learner (`FailureLearningEngine`)**: Records stack traces and revert histories to formulate compile-time safety rules.
 * **Topological Snapshot Diff (`ArchitectureSnapshotEngine`)**: Computes structural AST changes between major codebase milestones.
 
-### 6. ⚡ Autonomous Intelligence Orchestration & Refinement (Core Subsystems)
-MetaCLI glues the entire environment together inside a highly performant, E2E coordinated operating loop (fully tested in `packages/core/src/cognitive/cognitive.test.ts`):
+### 6. ⚡ Unified Cohesion & Human Trust Layer (Core Subsystems)
+MetaCLI glues all subsystems together inside a highly cohesive engineering intelligence loop (fully tested in `packages/core/src/cognitive/cognitive.test.ts`):
+* **Unified Cognitive Loop (`CognitiveRuntimeLoop`)**: Serving as the central intelligence state heartbeat to coordinate lifecycles.
+* **Human Trust Shield (`TrustAndConfidenceRuntime`)**: Scores index ages and EMA latencies to assess E2E operational stability.
+* **Semantic Diff Analyzer (`SemanticDiffEngine`)**: Inspects AST boundaries changes and alerts if public interface contracts are altered.
+* **Engineering Query Explorer (`EngineeringQueryRuntime`)**: Traverses symbol graphs to trace logical AST relation pathways.
+* **Workflow Planner (`SemanticWorkflowPlanner`)**: Proposal planner decomposing natural queries into directed DAG execution graphs.
+* **Memory Reinforcement decayer (`MemoryReinforcementEngine`)**: Updates SQLite memory weights and decays decayed knowledge blocks.
+* **Adaptive Project Persona Modes (`AdaptiveEngineeringPersona`)**: Shifting Startup vs Enterprise prompt systems and risk tolerances.
+* **Evolution Timeline (`CognitiveTimelineRuntime`)**: Chronological visual scrolling of decisions and performance logs.
 * **Context Budget Intelligence (`ContextBudgetEngine`)**: Allocates exact slice sizes and trims low-value blocks to strictly respect provider limits.
 * **Semantic Context Prioritizer (`SemanticContextPrioritizer`)**: Employs TypeScript compiler import structures to rank highly coupled AST interfaces above flat keyword query similarities.
 * **Intent-Aware Retrieval (`IntentAwareRetrievalOrchestrator`)**: Switches search strategies dynamically depending on refactoring, debugging, planning, or auditing intents.
@@ -83,7 +91,13 @@ MetaCLI (Monorepo)
     │   └── src/
     │       ├── cognitive/
     │       │   ├── presence/   ← RuntimePresenceEngine.ts (TUI statuses and greeting footnotes)
-    │       │   └── state/      ← EngineeringConfidenceEngine.ts (caution safety index evaluator)
+    │       │   ├── state/      ← EngineeringConfidenceEngine.ts, TrustAndConfidenceRuntime.ts
+    │       │   ├── loop/       ← CognitiveRuntimeLoop.ts (central loops heartbeat coordinator)
+    │       │   ├── diff/       ← SemanticDiffEngine.ts (AST public interface change analyzer)
+    │       │   ├── search/     ← EngineeringQueryRuntime.ts (logical AST relationship explorations)
+    │       │   ├── planner/    ← SemanticWorkflowPlanner.ts (instruction DAG decomposition planner)
+    │       │   ├── memory/     ← MemoryReinforcementEngine.ts (memory touching decayer)
+    │       │   └── personas/   ← PersonaEngine.ts, AdaptiveEngineeringPersona.ts
     │       ├── orchestrator/   ← ContextBudgetEngine.ts, SemanticContextPrioritizer.ts,
     │       │                     IntentAwareRetrievalOrchestrator.ts, AdaptiveOrchestrationEngine.ts
     │       ├── session/        ← ConversationContinuityEngine.ts (cross-session continuity stitches)

@@ -12,6 +12,14 @@ import {
   AdaptiveOrchestrationEngine,
   RuntimePresenceEngine,
   RuntimeHealthEngine,
+  CognitiveRuntimeLoop,
+  TrustAndConfidenceRuntime,
+  SemanticDiffEngine,
+  EngineeringQueryRuntime,
+  SemanticWorkflowPlanner,
+  MemoryReinforcementEngine,
+  AdaptiveEngineeringPersona,
+  CognitiveTimelineRuntime,
 } from '../../src/index.js';
 
 describe('MetaCLI Core Cognitive Intelligence Layer', () => {
@@ -129,5 +137,75 @@ describe('MetaCLI Core Cognitive Intelligence Layer', () => {
     const sick = await engine.checkHealth(0, [], 5000);
     expect(sick.isStable).toBe(false);
     expect(sick.recommendations.length).toBeGreaterThan(1);
+  });
+
+  it('CognitiveRuntimeLoop should coordinate prompts state transitions successfully', () => {
+    const loop = new CognitiveRuntimeLoop(eventBus);
+    expect(loop.getState()).toBe('OBSERVING');
+    loop.transition('CLASSIFYING');
+    expect(loop.getState()).toBe('CLASSIFYING');
+  });
+
+  it('TrustAndConfidenceRuntime should evaluate index ages and provider failures', () => {
+    const runtime = new TrustAndConfidenceRuntime(eventBus);
+    const healthy = runtime.evaluateTrust(1000, 0, 0);
+    expect(healthy.isTrustworthy).toBe(true);
+
+    const stale = runtime.evaluateTrust(86400000 * 2, 2, 5);
+    expect(stale.isTrustworthy).toBe(false);
+    expect(stale.warnings.length).toBeGreaterThan(1);
+  });
+
+  it('SemanticDiffEngine should analyze exported boundaries changes', () => {
+    const engine = new SemanticDiffEngine(eventBus);
+    const report = engine.analyzeSemanticChanges('PathGuard.ts', 'export class PathGuard {}', 'class PathGuard {}');
+    expect(report.structuralChanged).toBe(true);
+    expect(report.riskScore).toBeGreaterThan(0.5);
+  });
+
+  it('EngineeringQueryRuntime should explore logical AST dependency linkages', async () => {
+    const runtime = new EngineeringQueryRuntime(eventBus);
+    const relationshipMatrix = {
+      Orchestrator: ['ProviderRouter', 'FallbackEngine'],
+    };
+    const traces = await runtime.exploreQuery('Orchestrator', relationshipMatrix);
+    expect(traces.length).toBe(1);
+    expect(traces[0]?.relationships).toContain('ProviderRouter');
+  });
+
+  it('SemanticWorkflowPlanner should plan goal decomposition into DAG node graphs', () => {
+    const planner = new SemanticWorkflowPlanner(eventBus);
+    const plan = planner.planWorkflow('Migrate auth session structures');
+    expect(plan.estimatedDifficulty).toBe('high');
+    expect(plan.nodes.length).toBe(3);
+    expect(plan.nodes[0]?.id).toBe('step-arch');
+  });
+
+  it('MemoryReinforcementEngine should calculate decay coefficients and touched boosts', () => {
+    const engine = new MemoryReinforcementEngine(eventBus);
+    const reinforced = engine.reinforceMemory('mem-1', 0.5, 10, 1);
+    expect(reinforced.reinforced).toBe(true);
+    expect(reinforced.confidence).toBeGreaterThan(0.5);
+
+    const decayed = engine.reinforceMemory('mem-2', 0.8, 1, 10);
+    expect(decayed.reinforced).toBe(false);
+    expect(decayed.confidence).toBeLessThan(0.8);
+  });
+
+  it('AdaptiveEngineeringPersona should activate custom project modes risk limits', () => {
+    const persona = new AdaptiveEngineeringPersona(eventBus);
+    const enterprise = persona.activateMode('Enterprise');
+    expect(enterprise.mode).toBe('Enterprise');
+    expect(enterprise.riskTolerance).toBe(0.15);
+    expect(enterprise.retrievalStrategy).toBe('deep');
+  });
+
+  it('CognitiveTimelineRuntime should build evolution overlays snapshots', () => {
+    const runtime = new CognitiveTimelineRuntime(eventBus);
+    const list = runtime.compileTimeline([
+      { category: 'orchestration', description: 'Routed Claude' },
+    ]);
+    expect(list.length).toBe(1);
+    expect(list[0]?.category).toBe('orchestration');
   });
 });
