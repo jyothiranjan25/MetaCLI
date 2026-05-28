@@ -1,45 +1,73 @@
 /**
  * MetaCLI — Providers Overlay
  *
- * Lightweight overlay showing provider health, auth status, and health scores.
- * Inspired by k9s and LazyGit panel aesthetics.
+ * Lightweight interactive overlay showing provider health, auth status, and health scores.
+ * Navigate with UP/DOWN arrow keys and press Enter to switch the active provider!
  */
 
-import React from 'react';
-import { Box, Text } from 'ink';
+import React, { useState } from 'react';
+import { Box, Text, useInput } from 'ink';
 
 interface ProvidersOverlayProps {
   providers: Map<string, { installed: boolean; authenticated: boolean }>;
   healthScores?: Record<string, number>;
   cooldowns?: Record<string, string>;
+  activeProvider: string;
+  onSelectProvider?: (providerId: string) => void;
 }
 
 export function ProvidersOverlay({
   providers,
   healthScores = {},
   cooldowns = {},
+  activeProvider,
+  onSelectProvider,
 }: ProvidersOverlayProps): React.ReactElement {
   const providerList = Array.from(providers.entries());
+  
+  // Find current index of active provider
+  const [selectedIndex, setSelectedIndex] = useState(() => {
+    const idx = providerList.findIndex(([id]) => id === activeProvider);
+    return idx >= 0 ? idx : 0;
+  });
+
+  useInput((input, key) => {
+    if (key.downArrow) {
+      setSelectedIndex((i) => Math.min(providerList.length - 1, i + 1));
+      return;
+    }
+    if (key.upArrow) {
+      setSelectedIndex((i) => Math.max(0, i - 1));
+      return;
+    }
+    if (key.return) {
+      const selected = providerList[selectedIndex];
+      if (selected && onSelectProvider) {
+        onSelectProvider(selected[0]);
+      }
+      return;
+    }
+  });
 
   return (
     <Box flexDirection="column">
       {/* Overlay header */}
       <Box marginBottom={1}>
         <Text bold color="cyan">◈ </Text>
-        <Text bold>Providers</Text>
-        <Text color="gray">  {providerList.length} registered  •  ESC to close</Text>
+        <Text bold>Providers Setup</Text>
+        <Text color="gray">  {providerList.length} registered  •  ↑↓ navigate  •  Enter select  •  ESC close</Text>
       </Box>
 
       <Box flexDirection="column" gap={0}>
         {/* Table header */}
         <Box gap={0}>
-          <Text color="gray" bold dimColor>{'  Provider          '}</Text>
+          <Text color="gray" bold dimColor>{'    Provider            '}</Text>
           <Text color="gray" bold dimColor>{'  Status      '}</Text>
           <Text color="gray" bold dimColor>{'  Auth        '}</Text>
           <Text color="gray" bold dimColor>{'  Health  '}</Text>
           <Text color="gray" bold dimColor>{'  Cooldown'}</Text>
         </Box>
-        <Text color="gray" dimColor>{'  ─────────────────────────────────────────────────────────'}</Text>
+        <Text color="gray" dimColor>{'  ───────────────────────────────────────────────────────────'}</Text>
 
         {providerList.length === 0 && (
           <Box paddingLeft={2} marginTop={1}>
@@ -49,7 +77,9 @@ export function ProvidersOverlay({
           </Box>
         )}
 
-        {providerList.map(([id, info]) => {
+        {providerList.map(([id, info], idx) => {
+          const isSelected = idx === selectedIndex;
+          const isActive = id === activeProvider;
           const score = healthScores[id] ?? 100;
           const cooldown = cooldowns[id];
           const name = id.split('-').map((s) => s.charAt(0).toUpperCase() + s.slice(1)).join(' ');
@@ -58,7 +88,10 @@ export function ProvidersOverlay({
 
           return (
             <Box key={id} gap={0}>
-              <Text bold width={20}>{'  ' + name}</Text>
+              <Text color={isSelected ? 'cyan' : 'gray'}>{isSelected ? '▶ ' : '  '}</Text>
+              <Text bold={isSelected} color={isActive ? 'green' : isSelected ? 'cyan' : 'white'} width={22}>
+                {name} {isActive ? '[ACTIVE]' : ''}
+              </Text>
               <Text color={info.installed ? 'green' : 'red'} width={14}>
                 {info.installed ? '  ✓ installed' : '  ✗ missing'}
               </Text>
@@ -81,7 +114,7 @@ export function ProvidersOverlay({
         <Text color="gray" dimColor>✓ ready</Text>
         <Text color="gray" dimColor>⚠ needs auth</Text>
         <Text color="gray" dimColor>✗ not installed</Text>
-        <Text color="gray" dimColor>/provider {'<id>'} to switch</Text>
+        <Text color="cyan" dimColor>Enter to toggle/activate</Text>
       </Box>
     </Box>
   );

@@ -25,7 +25,7 @@ import fs from 'node:fs';
 import type { Orchestrator, EventBus, MetaCLIEvents } from '@metacli/core';
 import { createContextResolver } from '../bootstrap.js';
 import { SlashCommandRuntime } from '../runtime/SlashCommandRuntime.js';
-import type { OverlayId } from '../runtime/SlashCommandRuntime.js';
+import type { OverlayId, CommandSuggestion } from '../runtime/SlashCommandRuntime.js';
 import { OverlayManager } from './OverlayManager.js';
 import { CommandPalette } from './CommandPalette.js';
 
@@ -264,11 +264,13 @@ const InputLine = React.memo(({
   suggestions,
   showSuggestions,
   isProcessing,
+  selectedSuggestionIndex,
 }: {
   value: string;
-  suggestions: string[];
+  suggestions: CommandSuggestion[];
   showSuggestions: boolean;
   isProcessing: boolean;
+  selectedSuggestionIndex: number;
 }) => {
   const isSlash = value.startsWith('/');
 
@@ -277,11 +279,17 @@ const InputLine = React.memo(({
       {/* Suggestions dropdown */}
       {showSuggestions && suggestions.length > 0 && (
         <Box flexDirection="column" paddingLeft={2} marginBottom={0}>
-          {suggestions.map((s, i) => (
-            <Box key={i} gap={1}>
-              <Text color={i === 0 ? 'cyan' : 'gray'} dimColor={i > 0}>{s}</Text>
-            </Box>
-          ))}
+          {suggestions.map((s, i) => {
+            const isSelected = i === selectedSuggestionIndex;
+            return (
+              <Box key={i} gap={1}>
+                <Text color={isSelected ? 'cyan' : 'gray'} dimColor={!isSelected}>
+                  {isSelected ? '▶ ' : '  '}
+                  {s.displayText}
+                </Text>
+              </Box>
+            );
+          })}
         </Box>
       )}
 
@@ -349,7 +357,8 @@ export function ConversationRuntime({
 
   const [activeOverlay, setActiveOverlay] = useState<OverlayId>(null);
   const [showPalette, setShowPalette] = useState(false);
-  const [suggestions, setSuggestions] = useState<string[]>([]);
+  const [suggestions, setSuggestions] = useState<CommandSuggestion[]>([]);
+  const [selectedSuggestionIndex, setSelectedSuggestionIndex] = useState(0);
 
   const [providers, setProviders] = useState<Map<string, { installed: boolean; authenticated: boolean }>>(new Map());
   const [activeProvider, setActiveProvider] = useState('');
@@ -429,11 +438,12 @@ export function ConversationRuntime({
     if (input.startsWith('/') && input.length > 1) {
       const suggestions = slashRuntime.current
         .getSuggestions(input)
-        .slice(0, 5)
-        .map((s) => s.displayText);
+        .slice(0, 5);
       setSuggestions(suggestions);
+      setSelectedSuggestionIndex(0);
     } else {
       setSuggestions([]);
+      setSelectedSuggestionIndex(0);
     }
   }, [input]);
 
@@ -642,25 +652,57 @@ export function ConversationRuntime({
 
     // Input handling
     if (key.return) {
+      if (suggestions.length > 0) {
+        const cleanInput = input.trim().replace(/^\//, '').toLowerCase();
+        const exactMatch = suggestions.find(
+          (s) =>
+            s.command.name.toLowerCase() === cleanInput ||
+            s.command.aliases?.some((a) => a.toLowerCase() === cleanInput)
+        );
+
+        if (exactMatch && !exactMatch.command.argHint) {
+          submitPrompt();
+        } else {
+          const selected = suggestions[selectedSuggestionIndex];
+          if (selected) {
+            const cmdName = selected.command.name;
+            const argHint = selected.command.argHint;
+            setInput(`/${cmdName}${argHint ? ' ' : ''}`);
+          }
+        }
+        return;
+      }
       submitPrompt();
       return;
     }
 
     if (key.upArrow) {
+      if (suggestions.length > 0) {
+        setSelectedSuggestionIndex((prev) => (prev - 1 + suggestions.length) % suggestions.length);
+        return;
+      }
       const prev = slashRuntime.current.historyUp();
       if (prev !== null) setInput(prev);
       return;
     }
 
     if (key.downArrow) {
+      if (suggestions.length > 0) {
+        setSelectedSuggestionIndex((prev) => (prev + 1) % suggestions.length);
+        return;
+      }
       const next = slashRuntime.current.historyDown();
       if (next !== null) setInput(next);
       return;
     }
 
     if (key.tab && suggestions.length > 0) {
-      // Tab-complete first suggestion
-      setInput(suggestions[0] ?? input);
+      const selected = suggestions[selectedSuggestionIndex];
+      if (selected) {
+        const cmdName = selected.command.name;
+        const argHint = selected.command.argHint;
+        setInput(`/${cmdName}${argHint ? ' ' : ''}`);
+      }
       return;
     }
 
@@ -712,6 +754,11 @@ export function ConversationRuntime({
             indexedFiles,
             memorySummaries,
             eventBus,
+            activeProvider,
+            onSelectProvider: (providerId) => {
+              executeSlashCommand(`/provider ${providerId}`);
+              setActiveOverlay(null);
+            },
           }}
           onClose={() => setActiveOverlay(null)}
         />
@@ -743,6 +790,7 @@ export function ConversationRuntime({
           suggestions={suggestions}
           showSuggestions={input.startsWith('/') && suggestions.length > 0}
           isProcessing={isProcessing}
+          selectedSuggestionIndex={selectedSuggestionIndex}
         />
       )}
     </Box>

@@ -13,3 +13,9 @@ export { ClaudeAdapter } from './claude/ClaudeAdapter.js';
 
 // Gemini
 export { GeminiAdapter } from './gemini/GeminiAdapter.js';
+
+// Codex
+export { CodexAdapter } from './codex/CodexAdapter.js';
+
+// OpenCode
+export { OpenCodeAdapter } from './opencode/OpenCodeAdapter.js';

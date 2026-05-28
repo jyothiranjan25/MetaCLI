@@ -31,6 +31,8 @@ export interface OverlayContext {
   indexedFiles: number;
   memorySummaries: number;
   eventBus?: any;
+  activeProvider?: string;
+  onSelectProvider?: (providerId: string) => void;
 }
 
 interface OverlayManagerProps {
@@ -89,6 +91,8 @@ export function OverlayManager({ activeOverlay, context, onClose }: OverlayManag
             providers={context.providers}
             healthScores={context.healthScores}
             cooldowns={context.cooldowns}
+            activeProvider={context.activeProvider ?? ''}
+            onSelectProvider={context.onSelectProvider}
           />
         );
 

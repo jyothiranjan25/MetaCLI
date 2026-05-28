@@ -14,7 +14,7 @@ import {
   type MetaCLIConfig,
   type MetaCLIEvents,
 } from '@metacli/core';
-import { ClaudeAdapter, GeminiAdapter, ProviderDiscovery } from '@metacli/adapters';
+import { ClaudeAdapter, GeminiAdapter, CodexAdapter, OpenCodeAdapter, ProviderDiscovery } from '@metacli/adapters';
 import { UsageTracker, HealthScorer, CooldownManager } from '@metacli/telemetry';
 import path from 'node:path';
 import fs from 'node:fs';
@@ -59,7 +59,8 @@ export async function bootstrap(cwd: string = process.cwd()): Promise<BootstrapR
   const ADAPTER_MAP: Record<string, any> = {
     claude: ClaudeAdapter,
     gemini: GeminiAdapter,
-    // Add more as implemented
+    codex: CodexAdapter,
+    opencode: OpenCodeAdapter,
   };
 
   for (const provider of discovered) {
