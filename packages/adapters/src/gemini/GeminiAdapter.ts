@@ -61,34 +61,23 @@ export class GeminiAdapter extends SubprocessAdapter {
       };
     }
 
-    // Check for cached OAuth credentials
-    const geminiDir = join(homedir(), '.gemini');
+    // Check for cached OAuth credentials file
+    const credPath = join(homedir(), '.gemini', 'oauth_creds.json');
+    const googleAccountsPath = join(homedir(), '.gemini', 'google_accounts.json');
     try {
-      await access(geminiDir, constants.R_OK);
-
-      // The ~/.gemini directory exists — likely has cached credentials
-      // Probe with a minimal command to verify
       try {
-        const proc = this.spawn(['-p', '--output-format', 'json', 'ping'], {
-          timeout: 15_000,
-          disableColors: true,
-        });
-
-        const result = await proc;
-
-        if (result.exitCode === 0) {
-          return { authenticated: true, method: 'oauth' };
-        }
+        await access(credPath, constants.R_OK);
+        return {
+          authenticated: true,
+          method: 'oauth',
+        };
       } catch {
-        // Probe failed — credentials may be expired
-      } finally {
-        this.currentProcess = null;
+        await access(googleAccountsPath, constants.R_OK);
+        return {
+          authenticated: true,
+          method: 'oauth',
+        };
       }
-
-      return {
-        authenticated: false,
-        error: 'Gemini CLI session may be expired. Run `gemini` to re-authenticate.',
-      };
     } catch {
       return {
         authenticated: false,
