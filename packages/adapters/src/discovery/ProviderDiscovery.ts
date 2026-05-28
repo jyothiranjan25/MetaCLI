@@ -4,7 +4,7 @@
  * Automatically detects installed AI CLIs and validates their health/sessions.
  */
 
-import { execSync } from 'node:child_process';
+import { execa } from 'execa';
 import path from 'node:path';
 import fs from 'node:fs';
 
@@ -27,17 +27,12 @@ export class ProviderDiscovery {
   ];
 
   /**
-   * Scans the system for installed AI providers.
+   * Scans the system for installed AI providers in parallel.
    */
   public async discoverAll(): Promise<ProviderMetadata[]> {
-    const results: ProviderMetadata[] = [];
-
-    for (const provider of ProviderDiscovery.KNOWN_PROVIDERS) {
-      const metadata = await this.probeProvider(provider);
-      results.push(metadata);
-    }
-
-    return results;
+    return Promise.all(
+      ProviderDiscovery.KNOWN_PROVIDERS.map((provider) => this.probeProvider(provider))
+    );
   }
 
   private async probeProvider(provider: typeof ProviderDiscovery.KNOWN_PROVIDERS[0]): Promise<ProviderMetadata> {
@@ -50,7 +45,8 @@ export class ProviderDiscovery {
     try {
       // 1. Check if executable exists in PATH
       const whichCmd = process.platform === 'win32' ? 'where' : 'which';
-      const fullPath = execSync(`${whichCmd} ${provider.executable}`, { stdio: 'pipe' }).toString().trim().split('\n')[0];
+      const { stdout } = await execa(whichCmd, [provider.executable]);
+      const fullPath = stdout.trim().split('\n')[0];
 
       if (fullPath && fs.existsSync(fullPath)) {
         metadata.isInstalled = true;
@@ -59,14 +55,13 @@ export class ProviderDiscovery {
 
         // 2. Try to get version (fast)
         try {
-          const version = execSync(`${provider.executable} --version`, { stdio: 'pipe' }).toString().trim();
-          metadata.version = version;
+          const { stdout: versionOut } = await execa(provider.executable, ['--version'], { timeout: 2000 });
+          metadata.version = versionOut.trim();
         } catch {
           // Some might not support --version or fail
         }
 
         // 3. Simple session check (optional/provider-specific)
-        // This is a placeholder for more complex session detection logic
         await this.validateSession(metadata);
       }
     } catch (error) {

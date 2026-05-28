@@ -56,42 +56,45 @@ export class Orchestrator {
   }
 
   /**
-   * Detect and register all available providers.
+   * Detect and register all available providers in parallel.
    * Checks which CLIs are installed and authenticated.
    */
   async detectProviders(): Promise<Map<string, { installed: boolean; authenticated: boolean }>> {
     const results = new Map<string, { installed: boolean; authenticated: boolean }>();
+    const adapters = this.router.getAllAdapters();
 
-    for (const adapter of this.router.getAllAdapters()) {
-      try {
-        const detection = await adapter.detect();
+    await Promise.all(
+      adapters.map(async (adapter) => {
+        try {
+          const detection = await adapter.detect();
 
-        if (detection.installed) {
-          await this.eventBus.emit('provider:detected', {
-            adapterId: adapter.id,
-            version: detection.version ?? 'unknown',
-            binaryPath: detection.binaryPath ?? 'unknown',
-          });
-
-          const auth = await adapter.checkAuth();
-          if (auth.authenticated) {
-            await this.eventBus.emit('provider:auth_valid', {
+          if (detection.installed) {
+            await this.eventBus.emit('provider:detected', {
               adapterId: adapter.id,
-              method: auth.method ?? 'unknown',
+              version: detection.version ?? 'unknown',
+              binaryPath: detection.binaryPath ?? 'unknown',
             });
-          }
 
-          results.set(adapter.id, {
-            installed: true,
-            authenticated: auth.authenticated,
-          });
-        } else {
+            const auth = await adapter.checkAuth();
+            if (auth.authenticated) {
+              await this.eventBus.emit('provider:auth_valid', {
+                adapterId: adapter.id,
+                method: auth.method ?? 'unknown',
+              });
+            }
+
+            results.set(adapter.id, {
+              installed: true,
+              authenticated: auth.authenticated,
+            });
+          } else {
+            results.set(adapter.id, { installed: false, authenticated: false });
+          }
+        } catch {
           results.set(adapter.id, { installed: false, authenticated: false });
         }
-      } catch {
-        results.set(adapter.id, { installed: false, authenticated: false });
-      }
-    }
+      })
+    );
 
     return results;
   }

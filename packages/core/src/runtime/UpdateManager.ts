@@ -4,7 +4,7 @@
  * Handles version checking and self-updates.
  */
 
-import { execSync } from 'node:child_process';
+import { execa } from 'execa';
 
 export interface VersionInfo {
   current: string;
@@ -23,7 +23,8 @@ export class UpdateManager {
   public async checkForUpdates(): Promise<VersionInfo | null> {
     try {
       // Use npm view to get the latest version (fast)
-      const latest = execSync('npm view @metacli/cli version', { stdio: 'pipe' }).toString().trim();
+      const { stdout } = await execa('npm', ['view', '@metacli/cli', 'version'], { timeout: 5000 });
+      const latest = stdout.trim();
       
       return {
         current: this.currentVersion,
@@ -41,7 +42,7 @@ export class UpdateManager {
    */
   public async performUpdate(): Promise<void> {
     try {
-      execSync('npm install -g @metacli/cli', { stdio: 'inherit' });
+      await execa('npm', ['install', '-g', '@metacli/cli'], { stdio: 'inherit' });
     } catch (error: any) {
       throw new Error(`Failed to update MetaCLI: ${error.message}`);
     }
