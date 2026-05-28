@@ -107,3 +107,18 @@ export {
   type CouplingReport,
 } from './security/ActiveArchitectureIntelligence.js';
 
+// Cognitive Intelligence Layer
+export {
+  GhostEngineerRuntime,
+  type GhostProposal,
+} from './cognitive/ghost/GhostEngineerRuntime.js';
+export {
+  ReflectionEngine,
+  type WorkflowReflection,
+} from './cognitive/learning/ReflectionEngine.js';
+export {
+  PersonaEngine,
+  type PersonaType,
+  type PersonaConfig,
+} from './cognitive/personas/PersonaEngine.js';
+

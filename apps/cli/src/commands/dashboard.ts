@@ -1,7 +1,7 @@
 import React from 'react';
 import { render } from 'ink';
 import { bootstrap } from '../bootstrap.js';
-import { InteractiveDashboardView } from '../ui/InteractiveDashboardView.js';
+import { ConversationRuntime } from '../ui/ConversationRuntime.js';
 
 interface DashboardCommandOptions {
   tab?: string;
@@ -12,13 +12,12 @@ export async function dashboardCommand(options: DashboardCommandOptions): Promis
   try {
     const { orchestrator, eventBus } = await bootstrap(options.dir);
 
-    // Boot interactive UI
+    // Boot conversation-first UI
     const { waitUntilExit } = render(
-      React.createElement(InteractiveDashboardView, {
+      React.createElement(ConversationRuntime, {
         orchestrator,
         eventBus,
         workingDirectory: options.dir,
-        initialTab: options.tab ?? 'prompt',
       }),
     );
 
