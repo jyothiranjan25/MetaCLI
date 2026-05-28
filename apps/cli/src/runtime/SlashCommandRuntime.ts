@@ -74,6 +74,23 @@ export class SlashCommandRuntime {
   }
 
   /**
+   * Resolve a raw slash input to a canonical executable command string.
+   * Exact names and aliases execute immediately; fuzzy matches execute when
+   * there is a single clear no-argument command.
+   */
+  resolveExecutableInput(input: string): string | null {
+    const parsed = this.parse(input);
+    if (!parsed.name) return null;
+    if (parsed.command) return `/${parsed.command.name}${parsed.args.length > 0 ? ` ${parsed.args.join(' ')}` : ''}`;
+
+    const matches = this.getSuggestions(input, 2);
+    if (matches.length !== 1) return null;
+    const match = matches[0].command;
+    if (match.argHint) return null;
+    return `/${match.name}`;
+  }
+
+  /**
    * Execute a parsed slash command, returning the appropriate result.
    */
   execute(parsed: ParsedSlashCommand): SlashCommandResult {

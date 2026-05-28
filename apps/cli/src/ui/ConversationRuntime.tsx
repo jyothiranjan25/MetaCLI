@@ -402,7 +402,7 @@ export function ConversationRuntime({
   }, [workingDirectory, pushEvent]);
 
   useEffect(() => {
-    if (input.startsWith('/') && input.length > 1) {
+    if (input.startsWith('/')) {
       setSuggestions(slashRuntime.current.getSuggestions(input).slice(0, 6));
       setSelectedSuggestionIndex(0);
     } else {
@@ -592,17 +592,35 @@ export function ConversationRuntime({
     }
 
     if (key.return) {
-      if (suggestions.length > 0) {
-        const clean = input.trim().replace(/^\//, '').toLowerCase();
-        const exact = suggestions.find((suggestion) => suggestion.command.name.toLowerCase() === clean);
-        if (!exact) {
-          const selected = suggestions[selectedSuggestionIndex];
-          if (selected) {
-            setInput(`/${selected.command.name}${selected.command.argHint ? ' ' : ''}`);
+      if (input.trim() === '/') {
+        return;
+      }
+
+      if (input.trim().startsWith('/')) {
+        const executable = slashRuntime.current.resolveExecutableInput(input);
+        if (executable) {
+          void executeSlashCommand(executable);
+          setInput('');
+          setSuggestions([]);
+          return;
+        }
+
+        const selected = suggestions[selectedSuggestionIndex];
+        if (selected) {
+          const parts = input.trim().split(/\s+/);
+          const args = parts.slice(1).join(' ');
+          const hasArgs = args.length > 0;
+          if (!selected.command.argHint || hasArgs) {
+            void executeSlashCommand(`/${selected.command.name}${hasArgs ? ` ${args}` : ''}`);
+            setInput('');
+            setSuggestions([]);
             return;
           }
+          setInput(`/${selected.command.name} `);
+          return;
         }
       }
+
       void submitPrompt();
       return;
     }
@@ -612,6 +630,19 @@ export function ConversationRuntime({
     }
     if (key.downArrow && suggestions.length > 0) {
       setSelectedSuggestionIndex((prev) => (prev + 1) % suggestions.length);
+      return;
+    }
+    if (key.tab && input.startsWith('/') && suggestions.length > 0) {
+      const selected = suggestions[selectedSuggestionIndex];
+      if (selected) {
+        const currentParts = input.trim().split(/\s+/);
+        const args = currentParts.slice(1).join(' ');
+        if (selected.command.argHint) {
+          setInput(`/${selected.command.name}${args ? ` ${args}` : ' '}`);
+        } else {
+          setInput(`/${selected.command.name}`);
+        }
+      }
       return;
     }
     if (key.backspace || key.delete) {
