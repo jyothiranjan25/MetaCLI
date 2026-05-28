@@ -19,7 +19,7 @@
     "clean": "rm -rf dist .turbo"
   },
   "dependencies": {
-    "@metacli/core": "workspace:*"
+    "@metacli/core": "*"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",

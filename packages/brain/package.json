@@ -19,7 +19,7 @@
     "clean": "rm -rf dist .turbo"
   },
   "dependencies": {
-    "@metacli/core": "workspace:*",
+    "@metacli/core": "*",
     "better-sqlite3": "^12.10.0",
     "typescript": "^5.7.2"
   },

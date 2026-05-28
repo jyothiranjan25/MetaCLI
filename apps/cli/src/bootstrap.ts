@@ -9,13 +9,16 @@ import {
   Orchestrator,
   ConfigLoader,
   EventBus,
+  GlobalStorage,
+  SetupManager,
   type MetaCLIConfig,
   type MetaCLIEvents,
 } from '@metacli/core';
-import { ClaudeAdapter, GeminiAdapter } from '@metacli/adapters';
+import { ClaudeAdapter, GeminiAdapter, ProviderDiscovery } from '@metacli/adapters';
 import { UsageTracker, HealthScorer, CooldownManager } from '@metacli/telemetry';
 import path from 'node:path';
 import fs from 'node:fs';
+import chalk from 'chalk';
 
 export interface BootstrapResult {
   orchestrator: Orchestrator;
@@ -24,32 +27,54 @@ export interface BootstrapResult {
   usageTracker: UsageTracker;
   healthScorer: HealthScorer;
   cooldownManager: CooldownManager;
+  storage: GlobalStorage;
 }
 
-export async function bootstrap(cwd?: string): Promise<BootstrapResult> {
-  // 1. Load configuration
+export async function bootstrap(cwd: string = process.cwd()): Promise<BootstrapResult> {
+  // 1. Initialize Global Storage & Event Bus
+  const storage = new GlobalStorage();
+  const eventBus = new EventBus<MetaCLIEvents>();
+  
+  // 2. Run initial setup if needed
+  const setupManager = new SetupManager(storage, eventBus);
+  const setupResult = await setupManager.runSetup();
+  
+  if (setupResult.isFirstTime && !process.env.METACLI_SKIP_SETUP) {
+    console.log(chalk.bold.cyan('\nMetaCLI — First-time Initialization\n'));
+    // We don't block, but we can emit or log that we're setting up
+  }
+
+  // 3. Load configuration
   const configLoader = new ConfigLoader();
   const config = await configLoader.load(cwd);
 
-  // 2. Create the event bus
-  const eventBus = new EventBus<MetaCLIEvents>();
-
-  // 3. Initialize the orchestrator
+  // 4. Initialize the orchestrator
   const orchestrator = new Orchestrator(config, eventBus);
 
-  // 4. Register all built-in adapters
-  const adapters = [new ClaudeAdapter(), new GeminiAdapter()];
+  // 5. Discover and register adapters
+  const discovery = new ProviderDiscovery();
+  const discovered = await discovery.discoverAll();
 
-  for (const adapter of adapters) {
-    const providerConfig = config.providers[adapter.id];
+  // Mapping discovered providers to adapter classes
+  const ADAPTER_MAP: Record<string, any> = {
+    claude: ClaudeAdapter,
+    gemini: GeminiAdapter,
+    // Add more as implemented
+  };
 
-    // Skip explicitly disabled providers
-    if (providerConfig?.enabled === false) continue;
-
-    orchestrator.registerAdapter(adapter);
+  for (const provider of discovered) {
+    if (provider.isInstalled && ADAPTER_MAP[provider.id]) {
+      const AdapterClass = ADAPTER_MAP[provider.id];
+      const adapter = new AdapterClass();
+      
+      const providerConfig = config.providers[adapter.id];
+      if (providerConfig?.enabled !== false) {
+        orchestrator.registerAdapter(adapter);
+      }
+    }
   }
 
-  // 5. Initialize telemetry
+  // 6. Initialize telemetry
   const usageTracker = new UsageTracker(eventBus);
   const healthScorer = new HealthScorer(eventBus);
   const cooldownManager = new CooldownManager(eventBus);
@@ -61,6 +86,7 @@ export async function bootstrap(cwd?: string): Promise<BootstrapResult> {
     usageTracker,
     healthScorer,
     cooldownManager,
+    storage,
   };
 }
 

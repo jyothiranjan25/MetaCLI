@@ -4,6 +4,11 @@
  * Barrel export for @metacli/core package.
  */
 
+// Runtime
+export { GlobalStorage } from './runtime/GlobalStorage.js';
+export { SetupManager, type SetupResult } from './runtime/SetupManager.js';
+export { UpdateManager, type VersionInfo } from './runtime/UpdateManager.js';
+
 // Events
 export { EventBus, type EventHandler } from './events/EventBus.js';
 export type { MetaCLIEvents } from './events/events.js';

@@ -7,13 +7,7 @@
  */
 
 import { Command } from 'commander';
-import { askCommand } from './commands/ask.js';
-import { statusCommand } from './commands/status.js';
-import { configCommand } from './commands/config.js';
-import { dashboardCommand } from './commands/dashboard.js';
-import { scanCommand } from './commands/scan.js';
-import { runCommand } from './commands/run.js';
-import { auditCommand } from './commands/audit.js';
+import { setupCommand } from './commands/setup.js';
 
 const program = new Command();
 
@@ -34,27 +28,39 @@ program
   .option('--system <prompt>', 'System prompt')
   .option('--no-fallback', 'Disable automatic provider fallback')
   .option('--verbose', 'Enable verbose output')
-  .action(askCommand);
+  .action(async (prompt, options) => {
+    const { askCommand } = await import('./commands/ask.js');
+    await askCommand(prompt, options);
+  });
 
 program
   .command('status')
   .description('Show detected providers and their health status')
   .option('--json', 'Output as JSON')
-  .action(statusCommand);
+  .action(async (options) => {
+    const { statusCommand } = await import('./commands/status.js');
+    await statusCommand(options);
+  });
 
 program
   .command('config')
   .description('Show or edit MetaCLI configuration')
   .option('--show', 'Show current configuration')
   .option('--path', 'Show config file path')
-  .action(configCommand);
+  .action(async (options) => {
+    const { configCommand } = await import('./commands/config.js');
+    await configCommand(options);
+  });
 
 program
   .command('scan')
   .description('Index workspace codebase symbols, dependencies, and file structures')
   .option('-d, --dir <directory>', 'Working directory', process.cwd())
   .option('--force', 'Force full rebuild of the database index')
-  .action(scanCommand);
+  .action(async (options) => {
+    const { scanCommand } = await import('./commands/scan.js');
+    await scanCommand(options);
+  });
 
 program
   .command('run')
@@ -62,44 +68,66 @@ program
   .option('-f, --file <file>', 'JSON task graph path (defaults to metacli-tasks.json)')
   .option('-d, --dir <directory>', 'Working directory', process.cwd())
   .option('-m, --mode <mode>', 'Safety mode override (safe, trusted, autonomous)')
-  .action(runCommand);
+  .action(async (options) => {
+    const { runCommand } = await import('./commands/run.js');
+    await runCommand(options);
+  });
 
 program
   .command('audit')
   .description('View relational security and process execution audit logs')
   .option('-d, --dir <directory>', 'Working directory', process.cwd())
   .option('-l, --limit <limit>', 'Max audit logs to display')
-  .action(auditCommand);
+  .action(async (options) => {
+    const { auditCommand } = await import('./commands/audit.js');
+    await auditCommand(options);
+  });
 
 program
   .command('dashboard')
   .description('Open the interactive terminal dashboard')
   .option('-t, --tab <tab>', 'Initial tab (prompt, dashboard, brain, providers, usage, sessions)')
   .option('-d, --dir <directory>', 'Working directory', process.cwd())
-  .action(dashboardCommand);
+  .action(async (options) => {
+    const { dashboardCommand } = await import('./commands/dashboard.js');
+    await dashboardCommand(options);
+  });
 
 program
   .command('brain')
   .description('Open the persistent project brain explorer')
   .option('-d, --dir <directory>', 'Working directory', process.cwd())
-  .action((options) => dashboardCommand({ ...options, tab: 'brain' }));
+  .action(async (options) => {
+    const { dashboardCommand } = await import('./commands/dashboard.js');
+    await dashboardCommand({ ...options, tab: 'brain' });
+  });
 
 program
   .command('providers')
   .description('Show status and health of all AI adapters')
   .option('-d, --dir <directory>', 'Working directory', process.cwd())
-  .action((options) => dashboardCommand({ ...options, tab: 'providers' }));
+  .action(async (options) => {
+    const { dashboardCommand } = await import('./commands/dashboard.js');
+    await dashboardCommand({ ...options, tab: 'providers' });
+  });
 
 program
   .command('usage')
   .description('Show provider token usage and cost dashboard')
   .option('-d, --dir <directory>', 'Working directory', process.cwd())
-  .action((options) => dashboardCommand({ ...options, tab: 'usage' }));
+  .action(async (options) => {
+    const { dashboardCommand } = await import('./commands/dashboard.js');
+    await dashboardCommand({ ...options, tab: 'usage' });
+  });
+
+program.addCommand(setupCommand());
 
 // Parse and execute
 if (process.argv.length === 2) {
   // If no subcommand is specified, open interactive dashboard directly
-  dashboardCommand({ dir: process.cwd(), tab: 'prompt' });
+  import('./commands/dashboard.js').then(({ dashboardCommand }) => {
+    dashboardCommand({ dir: process.cwd(), tab: 'prompt' });
+  });
 } else {
   program.parse();
 }

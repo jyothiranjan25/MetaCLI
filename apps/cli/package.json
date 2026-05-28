@@ -1,11 +1,14 @@
 {
-  "name": "@metacli/cli",
-  "version": "0.1.0",
-  "description": "MetaCLI — Unified orchestration CLI for AI coding CLIs",
+  "name": "metacli",
+  "version": "1.0.0-alpha.1",
+  "description": "MetaCLI — Persistent Cognitive Engineering Intelligence",
   "type": "module",
   "bin": {
     "metacli": "./dist/index.js"
   },
+  "files": [
+    "dist"
+  ],
   "main": "./dist/index.js",
   "scripts": {
     "build": "tsup",
@@ -16,11 +19,12 @@
     "clean": "rm -rf dist .turbo"
   },
   "dependencies": {
-    "@metacli/core": "workspace:*",
-    "@metacli/adapters": "workspace:*",
-    "@metacli/telemetry": "workspace:*",
-    "@metacli/brain": "workspace:*",
-    "@metacli/workflow": "workspace:*",
+    "@metacli/adapters": "*",
+    "@metacli/brain": "*",
+    "@metacli/core": "*",
+    "@metacli/telemetry": "*",
+    "@metacli/workflow": "*",
+    "chalk": "^5.6.2",
     "commander": "^12.1.0",
     "ink": "^5.1.0",
     "ink-spinner": "^5.0.0",

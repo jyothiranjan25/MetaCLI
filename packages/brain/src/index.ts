@@ -29,3 +29,22 @@ export {
   type DomainNode,
 } from './indexing/SemanticProjectMapGenerator.js';
 
+// Cognitive Intelligence Layer
+export { EngineeringReasoningEngine, type ReasoningIntent } from './cognitive/reasoning/EngineeringReasoningEngine.js';
+export { SelfCuratingBrainEngine, type MemoryMetadata } from './cognitive/memory/SelfCuratingBrainEngine.js';
+export { RepositorySimulationEngine, type SimulationReport } from './cognitive/simulation/RepositorySimulationEngine.js';
+export { TemporalEngineeringAnalyzer, type TemporalTrend } from './cognitive/analytics/TemporalEngineeringAnalyzer.js';
+export { DeveloperDNAEngine, type DeveloperDNA } from './cognitive/adaptation/DeveloperDNAEngine.js';
+export { HierarchicalCompressionEngine, type CompressedNode } from './cognitive/memory/HierarchicalCompressionEngine.js';
+export { ArchitectureSnapshotEngine, type ArchitectureSnapshot } from './cognitive/memory/ArchitectureSnapshotEngine.js';
+export { FailureLearningEngine, type FailureConstraint } from './cognitive/learning/FailureLearningEngine.js';
+export { StrategicProjectUnderstandingEngine, type StrategicDirective } from './cognitive/narrative/StrategicProjectUnderstandingEngine.js';
+export { KnowledgeDistillationEngine, type DistilledDocument } from './cognitive/distillation/KnowledgeDistillationEngine.js';
+export { ThreatDetectionEngine, type ArchitecturalThreat } from './cognitive/threat/ThreatDetectionEngine.js';
+export { RefactorSafetyEngine, type SafetyAssessment } from './cognitive/refactor/RefactorSafetyEngine.js';
+export { ArchitectureGraphRuntime, type GraphViewport } from './cognitive/visualization/ArchitectureGraphRuntime.js';
+export { EngineeringStateAnalyzer, type EngineeringState } from './cognitive/state/EngineeringStateAnalyzer.js';
+export { ProjectNarrativeEngine, type NarrativeEpoch } from './cognitive/narrative/ProjectNarrativeEngine.js';
+export { SemanticRepositorySearchEngine, type SearchResult } from './cognitive/search/SemanticRepositorySearchEngine.js';
+export { DistributedSynchronizationEngine, type SyncStatus } from './cognitive/distributed/DistributedSynchronizationEngine.js';
+

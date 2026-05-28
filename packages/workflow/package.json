@@ -16,8 +16,8 @@
     "clean": "rm -rf dist .turbo"
   },
   "dependencies": {
-    "@metacli/core": "workspace:*",
-    "@metacli/brain": "workspace:*",
+    "@metacli/core": "*",
+    "@metacli/brain": "*",
     "execa": "^9.5.2"
   },
   "devDependencies": {
