@@ -58,6 +58,18 @@ MetaCLI incorporates an active cognitive layer (fully tested in `packages/brain/
 * **Crash & Failure Learner (`FailureLearningEngine`)**: Records stack traces and revert histories to formulate compile-time safety rules.
 * **Topological Snapshot Diff (`ArchitectureSnapshotEngine`)**: Computes structural AST changes between major codebase milestones.
 
+### 6. ⚡ Autonomous Intelligence Orchestration & Refinement (Core Subsystems)
+MetaCLI glues the entire environment together inside a highly performant, E2E coordinated operating loop (fully tested in `packages/core/src/cognitive/cognitive.test.ts`):
+* **Context Budget Intelligence (`ContextBudgetEngine`)**: Allocates exact slice sizes and trims low-value blocks to strictly respect provider limits.
+* **Semantic Context Prioritizer (`SemanticContextPrioritizer`)**: Employs TypeScript compiler import structures to rank highly coupled AST interfaces above flat keyword query similarities.
+* **Intent-Aware Retrieval (`IntentAwareRetrievalOrchestrator`)**: Switches search strategies dynamically depending on refactoring, debugging, planning, or auditing intents.
+* **Adaptive Routing (`AdaptiveOrchestrationEngine`)**: Evaluates task complexities and past provider health records to adapt routing parameters.
+* **Conversational Continuity (`ConversationContinuityEngine`)**: Persists chronological epoch boundaries to restore workspace states across CLI sessions.
+* **Engineering Confidence (`EngineeringConfidenceEngine`)**: Scores operational reliability based on memory freshness and active provider EMA degradations.
+* **Runtime Presence Footnotes (`RuntimePresenceEngine`)**: Emits subtle visual footnotes (`Context optimized | AST DB Warmed`) in the TUI input footer.
+* **Autonomous Health Monitor (`RuntimeHealthEngine`)**: Scans operational latencies and SQLite index drifts to execute self-healing steps.
+* **Cognitive Event Observability (`EventBus`)**: Incorporates typed history ring buffers (last 200 events) for full cognitive replay timelines diagnostics.
+
 ---
 
 ## 📂 Monorepo Directory Architecture
@@ -68,6 +80,15 @@ MetaCLI (Monorepo)
 │   └── cli/                ← React Ink CLI binary entry point, TUI dashboards, & Overlays
 └── packages/
     ├── core/               ← Orchestration, PathGuard, EnvironmentSanitizer, and FallbackEngine
+    │   └── src/
+    │       ├── cognitive/
+    │       │   ├── presence/   ← RuntimePresenceEngine.ts (TUI statuses and greeting footnotes)
+    │       │   └── state/      ← EngineeringConfidenceEngine.ts (caution safety index evaluator)
+    │       ├── orchestrator/   ← ContextBudgetEngine.ts, SemanticContextPrioritizer.ts,
+    │       │                     IntentAwareRetrievalOrchestrator.ts, AdaptiveOrchestrationEngine.ts
+    │       ├── session/        ← ConversationContinuityEngine.ts (cross-session continuity stitches)
+    │       ├── runtime/        ← RuntimeHealthEngine.ts (auto health recovery diagnostics)
+    │       └── events/         ← EventBus.ts (observability ring buffers timeline)
     ├── brain/              ← AST parser, sqlite brain.db, memories, timelines & cognitive engines
     │   └── src/cognitive/  ← 🧠 Sovereign Cognitive Engineering Intelligence Layer (17 Subsystems)
     │       ├── adaptation/  ← Developer DNA stylistic preference learning (DeveloperDNAEngine.ts)

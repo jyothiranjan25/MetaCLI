@@ -10,6 +10,8 @@ export type EventHandler<T = unknown> = (data: T) => void | Promise<void>;
 export class EventBus<TEvents extends Record<string, any> = Record<string, any>> {
   private handlers = new Map<string, Set<EventHandler>>();
   private onceHandlers = new Map<string, Set<EventHandler>>();
+  private history: Array<{ event: string; data: any; timestamp: number }> = [];
+  private readonly maxHistorySize = 200;
 
   /**
    * Subscribe to an event. Returns an unsubscribe function.
@@ -49,6 +51,16 @@ export class EventBus<TEvents extends Record<string, any> = Record<string, any>>
    * Emit an event to all subscribers. Handlers run concurrently.
    */
   async emit<K extends keyof TEvents & string>(event: K, data: TEvents[K]): Promise<void> {
+    // Save to historical sliding buffer for cognitive event observability
+    this.history.push({
+      event,
+      data,
+      timestamp: Date.now(),
+    });
+    if (this.history.length > this.maxHistorySize) {
+      this.history.shift();
+    }
+
     const promises: Promise<void>[] = [];
 
     // Regular handlers
@@ -78,6 +90,20 @@ export class EventBus<TEvents extends Record<string, any> = Record<string, any>>
     if (promises.length > 0) {
       await Promise.all(promises);
     }
+  }
+
+  /**
+   * Query event logs history for replayability and diagnostic traces.
+   */
+  getHistory(): Array<{ event: string; data: any; timestamp: number }> {
+    return [...this.history];
+  }
+
+  /**
+   * Clear event history.
+   */
+  clearHistory(): void {
+    this.history = [];
   }
 
   /**

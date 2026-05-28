@@ -107,6 +107,39 @@ export {
   type CouplingReport,
 } from './security/ActiveArchitectureIntelligence.js';
 
+// New Advanced Cognitive Subsystems
+export {
+  ContextBudgetEngine,
+  type AllocatedContext,
+} from './orchestrator/ContextBudgetEngine.js';
+export {
+  SemanticContextPrioritizer,
+} from './orchestrator/SemanticContextPrioritizer.js';
+export {
+  IntentAwareRetrievalOrchestrator,
+  type RetrievalResult,
+} from './orchestrator/IntentAwareRetrievalOrchestrator.js';
+export {
+  AdaptiveOrchestrationEngine,
+  type AdaptiveConfig,
+} from './orchestrator/AdaptiveOrchestrationEngine.js';
+export {
+  ConversationContinuityEngine,
+  type SessionContinuity,
+} from './session/ConversationContinuityEngine.js';
+export {
+  EngineeringConfidenceEngine,
+  type ConfidenceAssessment,
+} from './cognitive/state/EngineeringConfidenceEngine.js';
+export {
+  RuntimePresenceEngine,
+  type PresenceState,
+} from './cognitive/presence/RuntimePresenceEngine.js';
+export {
+  RuntimeHealthEngine,
+  type HealthReport,
+} from './runtime/RuntimeHealthEngine.js';
+
 // Cognitive Intelligence Layer
 export {
   GhostEngineerRuntime,
