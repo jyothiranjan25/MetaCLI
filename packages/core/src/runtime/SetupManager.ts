@@ -14,9 +14,9 @@ export interface SetupResult {
 }
 
 export class SetupManager {
-  constructor(
-    private storage: GlobalStorage
-  ) {}
+  // Second arg (eventBus) is accepted for API compatibility but not used yet
+  constructor(private storage: GlobalStorage, ..._args: unknown[]) {}
+
 
   /**
    * Performs the initial setup sequence.

@@ -36,7 +36,9 @@ describe('GitSnapshotEngine', () => {
   });
 
   it('should prevent checkpoints in non-git directories', async () => {
-    const nonGitDir = path.resolve('./temp-non-git');
+    // Must be truly outside any git repo — use OS temp dir
+    const os = await import('node:os');
+    const nonGitDir = path.join(os.tmpdir(), `metacli-non-git-test-${Date.now()}`);
     if (fs.existsSync(nonGitDir)) fs.rmSync(nonGitDir, { recursive: true });
     fs.mkdirSync(nonGitDir);
 
@@ -45,6 +47,7 @@ describe('GitSnapshotEngine', () => {
 
     fs.rmSync(nonGitDir, { recursive: true });
   });
+
 
   it('should successfully create a snapshot checkpoint branch and rollback dirty changes', async () => {
     // 1. Write some initial files
