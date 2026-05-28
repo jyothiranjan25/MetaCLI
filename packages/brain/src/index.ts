@@ -28,6 +28,43 @@ export {
   SemanticProjectMapGenerator,
   type DomainNode,
 } from './indexing/SemanticProjectMapGenerator.js';
+export {
+  SemanticFileMapEngine,
+  type SemanticFileMapEntry,
+  type RiskClassification,
+} from './indexing/SemanticFileMapEngine.js';
+export {
+  ArchitectureSummaryCompiler,
+  type ArchitectureSummary,
+} from './indexing/ArchitectureSummaryCompiler.js';
+export {
+  ColdStartPreprocessor,
+  type ColdStartResult,
+} from './indexing/ColdStartPreprocessor.js';
+export {
+  GraphDirectedRetrieval,
+  type GraphRetrievalOptions,
+  type GraphRetrievalResult,
+} from './retrieval/GraphDirectedRetrieval.js';
+export {
+  SemanticWindowEngine,
+  type SemanticWindowRequest,
+  type SemanticWindow,
+  type SourceReader,
+} from './retrieval/SemanticWindowEngine.js';
+export {
+  ASTCompressionEngine,
+  type ASTCompressedRegion,
+} from './retrieval/ASTCompressionEngine.js';
+export {
+  SemanticDeltaEngine,
+  type SemanticSnapshot,
+  type SemanticDelta,
+} from './retrieval/SemanticDeltaEngine.js';
+export {
+  DifferentialMemoryUpdater,
+  type DifferentialUpdate,
+} from './memory/DifferentialMemoryUpdater.js';
 
 // Cognitive Intelligence Layer
 export { EngineeringReasoningEngine, type ReasoningIntent } from './cognitive/reasoning/EngineeringReasoningEngine.js';
@@ -66,4 +103,3 @@ export {
   type SubGraph,
   type ScalingConfig,
 } from './indexing/RepositoryScalingRuntime.js';
-

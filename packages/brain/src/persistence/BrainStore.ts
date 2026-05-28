@@ -155,6 +155,14 @@ export class BrainStore {
   }
 
   /**
+   * Persist a dense semantic summary for an indexed file without re-reading it.
+   */
+  updateFileSummary(filePath: string, summary: string): void {
+    const stmt = this.db.prepare('UPDATE files SET summary = ?, last_indexed = CURRENT_TIMESTAMP WHERE path = ?');
+    stmt.run(summary, filePath);
+  }
+
+  /**
    * Clear all indexed symbols and dependencies for a single file.
    * Typically done before re-indexing.
    */
@@ -225,6 +233,27 @@ export class BrainStore {
   }
 
   /**
+   * Return all symbols declared by a file.
+   */
+  getSymbolsForFile(filePath: string): SymbolRecord[] {
+    const stmt = this.db.prepare(`
+      SELECT name, type, file_path as filePath, start_line as startLine, end_line as endLine, is_exported as isExported
+      FROM symbols
+      WHERE file_path = ?
+      ORDER BY start_line ASC
+    `);
+    const rows = stmt.all(filePath) as any[];
+    return rows.map((row) => ({
+      name: row.name,
+      type: row.type,
+      filePath: row.filePath,
+      startLine: row.startLine,
+      endLine: row.endLine,
+      isExported: row.isExported === 1,
+    }));
+  }
+
+  /**
    * Search for files matching a path keyword.
    */
   searchFiles(keyword: string): FileRecord[] {
@@ -251,6 +280,32 @@ export class BrainStore {
   getAllDependencies(): DependencyRecord[] {
     const stmt = this.db.prepare('SELECT source_path as sourcePath, target_path as targetPath, type FROM dependencies');
     return stmt.all() as DependencyRecord[];
+  }
+
+  /**
+   * Return dependencies declared by one source file.
+   */
+  getDependenciesForFile(filePath: string): DependencyRecord[] {
+    const stmt = this.db.prepare(`
+      SELECT source_path as sourcePath, target_path as targetPath, type
+      FROM dependencies
+      WHERE source_path = ?
+      ORDER BY target_path ASC
+    `);
+    return stmt.all(filePath) as DependencyRecord[];
+  }
+
+  /**
+   * Return files that depend on the target file.
+   */
+  getImportersOf(filePath: string): DependencyRecord[] {
+    const stmt = this.db.prepare(`
+      SELECT source_path as sourcePath, target_path as targetPath, type
+      FROM dependencies
+      WHERE target_path = ?
+      ORDER BY source_path ASC
+    `);
+    return stmt.all(filePath) as DependencyRecord[];
   }
 
   /**

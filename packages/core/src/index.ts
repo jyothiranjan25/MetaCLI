@@ -228,3 +228,113 @@ export {
   type MonitorConfig,
 } from './cognitive/LiveEngineeringMonitor.js';
 
+// Persistent Semantic Cognition Runtime
+export {
+  ZeroExplorationRuntime,
+  type RetrievalTier,
+  type ZeroExplorationResult,
+  type TierProvider,
+  type ZeroExplorationConfig,
+} from './orchestrator/ZeroExplorationRuntime.js';
+export {
+  ReasoningCache,
+  type CacheKind,
+  type CacheEntry,
+  type CacheStats,
+} from './orchestrator/ReasoningCache.js';
+export {
+  ConfidenceGatedRetrieval,
+  type FileConfidence,
+  type GatedRetrievalRequest,
+  type GatedRetrievalResult,
+} from './orchestrator/ConfidenceGatedRetrieval.js';
+export {
+  MinimalReasoningMode,
+  type ReasoningDepth,
+  type TaskClassification,
+} from './orchestrator/MinimalReasoningMode.js';
+export {
+  TwoStageReasoningEngine,
+  type Stage1Plan,
+  type Stage2Result,
+  type TwoStageResult,
+  type Stage1Resolver,
+  type Stage2Resolver,
+} from './orchestrator/TwoStageReasoningEngine.js';
+export {
+  CognitiveBudgetEngine,
+  type CognitiveBudget,
+  type CognitiveBudgetUsage,
+  type BudgetDecision,
+} from './orchestrator/CognitiveBudgetEngine.js';
+export {
+  TokenAwareOrchestrator,
+  type OrchestrationCandidate,
+  type TokenAwareDecision,
+} from './orchestrator/TokenAwareOrchestrator.js';
+export {
+  SemanticReuseEngine,
+  type ReuseRecord,
+  type ReuseLookup,
+} from './orchestrator/SemanticReuseEngine.js';
+export {
+  TokenEfficiencyAnalytics,
+  type TokenWasteKind,
+  type TokenWasteEvent,
+  type TokenEfficiencyReport,
+} from './orchestrator/TokenEfficiencyAnalytics.js';
+export {
+  SemanticContextCompiler,
+  type SemanticContextCompilerOptions,
+  type CompiledSemanticContext,
+} from './orchestrator/SemanticContextCompiler.js';
+export {
+  ProviderTokenProfiles,
+  type ProviderId,
+  type ProviderTokenProfile,
+} from './orchestrator/ProviderTokenProfiles.js';
+export {
+  RetrievalValueRanker,
+  type RetrievalValueSignals,
+  type RankedContextItem,
+} from './orchestrator/RetrievalValueRanker.js';
+export {
+  ContextDeduplicator,
+  type DeduplicatedContext,
+} from './orchestrator/ContextDeduplicator.js';
+export {
+  TokenBudgetAllocator,
+  type BudgetAllocation,
+} from './orchestrator/TokenBudgetAllocator.js';
+export {
+  HierarchicalCompressionRuntime,
+  type ContextDetailLevel,
+  type CompressionResult,
+} from './orchestrator/HierarchicalCompressionRuntime.js';
+export {
+  IntentContextReducer,
+  type ContextReductionPolicy,
+} from './orchestrator/IntentContextReducer.js';
+export {
+  PromptShapeOptimizer,
+  type PromptShape,
+} from './orchestrator/PromptShapeOptimizer.js';
+export {
+  OutputDensityController,
+  type OutputDensityMode,
+} from './orchestrator/OutputDensityController.js';
+export {
+  PersistentSemanticMemory,
+  type SemanticMemoryEntry,
+} from './orchestrator/PersistentSemanticMemory.js';
+export {
+  ContextExpirationEngine,
+  type ExpirableContext,
+  type ExpirationDecision,
+} from './orchestrator/ContextExpirationEngine.js';
+export {
+  TokenTelemetryRuntime,
+  type TokenTelemetrySample,
+  type ProviderTokenAnalytics,
+  type TokenTelemetryReport,
+} from './orchestrator/TokenTelemetryRuntime.js';
