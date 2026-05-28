@@ -38,6 +38,9 @@ export type OverlayId =
   | 'settings'
   | 'events'
   | 'logs'
+  | 'skills'
+  | 'mcp'
+  | 'tools'
   | null;
 
 export interface SlashCommandResult {

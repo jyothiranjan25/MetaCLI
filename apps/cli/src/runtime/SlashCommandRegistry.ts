@@ -231,6 +231,68 @@ export const SLASH_COMMANDS: SlashCommand[] = [
     aliases: ['explain', 'why'],
   },
 
+  // ── Skills ───────────────────────────────────────────────────
+  {
+    name: 'skills',
+    description: 'List all installed skills',
+    category: 'runtime',
+    aliases: ['skill', 'sk'],
+    opensOverlay: 'skills',
+  },
+  {
+    name: 'skill-install',
+    description: 'Install a skill by ID',
+    category: 'runtime',
+    aliases: ['skill-add'],
+    argHint: '<skill-id>',
+  },
+  {
+    name: 'skill-remove',
+    description: 'Remove an installed skill',
+    category: 'runtime',
+    argHint: '<skill-id>',
+  },
+  {
+    name: 'skill-enable',
+    description: 'Enable a skill for this session',
+    category: 'runtime',
+    argHint: '<skill-id>',
+  },
+  {
+    name: 'skill-disable',
+    description: 'Disable an active skill',
+    category: 'runtime',
+    argHint: '<skill-id>',
+  },
+
+  // ── MCP ──────────────────────────────────────────────────────
+  {
+    name: 'mcp',
+    description: 'Show MCP server status',
+    category: 'runtime',
+    opensOverlay: 'mcp',
+  },
+  {
+    name: 'mcp-connect',
+    description: 'Connect to an MCP server',
+    category: 'runtime',
+    aliases: ['mcp-add'],
+    argHint: '<server-id>',
+  },
+  {
+    name: 'mcp-status',
+    description: 'Show MCP connection and tool status',
+    category: 'runtime',
+    aliases: ['mcp-info'],
+  },
+  {
+    name: 'tools',
+    description: 'List all available tools across MCP servers',
+    category: 'runtime',
+    aliases: ['tool', 'capabilities'],
+    opensOverlay: 'tools',
+  },
+
   // ── System ───────────────────────────────────────────────────
   {
     name: 'help',

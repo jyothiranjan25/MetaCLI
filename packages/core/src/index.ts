@@ -338,3 +338,70 @@ export {
   type ProviderTokenAnalytics,
   type TokenTelemetryReport,
 } from './orchestrator/TokenTelemetryRuntime.js';
+
+// Skills Ecosystem
+export {
+  SkillRegistry,
+  type SkillDefinition,
+  type SkillEntry,
+  type SkillStatus,
+  type RetrievalStrategy,
+} from './skills/SkillRegistry.js';
+export {
+  SkillRuntime,
+  type ActiveSkillContext,
+  type SkillActivationResult,
+} from './skills/SkillRuntime.js';
+export {
+  SkillMarketplace,
+  type MarketplaceEntry,
+  type SearchResult,
+} from './skills/SkillMarketplace.js';
+export {
+  SkillMemoryManager,
+  type SkillMemoryEntry,
+  type SkillMemoryQuery,
+} from './skills/SkillMemoryManager.js';
+export {
+  SkillAwareRetrieval,
+  type SkillAwareRetrievalHints,
+} from './skills/SkillAwareRetrieval.js';
+export {
+  SkillAwarePromptCompiler,
+  type SkillEnrichedPrompt,
+} from './skills/SkillAwarePromptCompiler.js';
+
+// MCP Ecosystem
+export {
+  MCPRegistry,
+  type MCPServerConfig,
+  type MCPServerEntry,
+  type MCPToolDescriptor,
+  type MCPTransport,
+  type MCPStatus,
+} from './mcp/MCPRegistry.js';
+export {
+  MCPRuntime,
+  type MCPToolCall,
+  type MCPToolResult,
+  type MCPTransportFn,
+} from './mcp/MCPRuntime.js';
+export {
+  MCPDiscoveryEngine,
+  type DiscoveredServer,
+} from './mcp/MCPDiscoveryEngine.js';
+export {
+  MCPPermissionManager,
+  type PermissionGrant,
+} from './mcp/MCPPermissionManager.js';
+
+// Capability & Tool Orchestration
+export {
+  CapabilityEngine,
+  type CapabilitySnapshot,
+} from './orchestrator/CapabilityEngine.js';
+export {
+  ToolOrchestrator,
+  type ToolCallRequest,
+  type ToolCallResponse,
+} from './orchestrator/ToolOrchestrator.js';

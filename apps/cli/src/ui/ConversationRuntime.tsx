@@ -11,7 +11,7 @@
  */
 
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { Box, Text, useInput, useApp } from 'ink';
+import { Box, Text, useApp } from 'ink';
 import Spinner from 'ink-spinner';
 import path from 'node:path';
 import fs from 'node:fs';
@@ -21,6 +21,14 @@ import { SlashCommandRuntime } from '../runtime/SlashCommandRuntime.js';
 import type { OverlayId, CommandSuggestion } from '../runtime/SlashCommandRuntime.js';
 import { OverlayManager } from './OverlayManager.js';
 import { CommandPalette } from './CommandPalette.js';
+import {
+  DISABLE_BRACKETED_PASTE,
+  ENABLE_BRACKETED_PASTE,
+  createPromptBuffer,
+  parseTerminalInput,
+  type PromptBufferState,
+  type TerminalInputEvent,
+} from './pasteInput.js';
 
 interface ConversationRuntimeProps {
   orchestrator: Orchestrator;
@@ -61,6 +69,12 @@ const toneColor: Record<CognitiveEvent['tone'], string> = {
   good: 'green',
   warn: 'yellow',
   muted: 'gray',
+};
+
+const EMPTY_PROMPT_BUFFER: PromptBufferState = {
+  text: '',
+  lineCount: 0,
+  isLarge: false,
 };
 
 function workspaceName(workingDirectory: string): string {
@@ -248,12 +262,14 @@ const CognitiveStream = React.memo(({
 
 const CommandLayer = React.memo(({
   value,
+  promptBuffer,
   suggestions,
   showSuggestions,
   selectedSuggestionIndex,
   isProcessing,
 }: {
   value: string;
+  promptBuffer: PromptBufferState;
   suggestions: CommandSuggestion[];
   showSuggestions: boolean;
   selectedSuggestionIndex: number;
@@ -279,9 +295,17 @@ const CommandLayer = React.memo(({
         </Box>
       ) : (
         <>
-          <Text color={value.startsWith('/') ? 'cyan' : 'white'}>{value.startsWith('/') ? value.slice(1) : value}</Text>
+          {promptBuffer.isLarge ? (
+            <Box flexDirection="column">
+              <Text color="green">✓ Large prompt detected</Text>
+              <Text color="green">✓ {promptBuffer.lineCount.toLocaleString()} lines</Text>
+              <Text color="green">✓ Ready to send</Text>
+            </Box>
+          ) : (
+            <Text color={value.startsWith('/') ? 'cyan' : 'white'}>{value.startsWith('/') ? value.slice(1) : value}</Text>
+          )}
           <Text color="green">▌</Text>
-          {!value && <Text color="gray">ask, or type / for commands</Text>}
+          {!value && !promptBuffer.isLarge && <Text color="gray">ask, or type / for commands</Text>}
         </>
       )}
     </Box>
@@ -301,6 +325,7 @@ export function ConversationRuntime({
 }: ConversationRuntimeProps): React.ReactElement {
   const { exit } = useApp();
   const [input, setInput] = useState('');
+  const [promptBuffer, setPromptBuffer] = useState<PromptBufferState>(EMPTY_PROMPT_BUFFER);
   const [messages, setMessages] = useState<Message[]>([]);
   const [events, setEvents] = useState<CognitiveEvent[]>([
     { id: 'boot-1', label: 'Runtime presence initialized', tone: 'good', timestamp: new Date() },
@@ -324,6 +349,34 @@ export function ConversationRuntime({
   const [memorySummaries, setMemorySummaries] = useState(0);
   const [showContinuation, setShowContinuation] = useState(true);
   const slashRuntime = useRef(new SlashCommandRuntime());
+  const promptBufferRef = useRef<PromptBufferState>(EMPTY_PROMPT_BUFFER);
+  const inputRef = useRef('');
+  const suggestionsRef = useRef<CommandSuggestion[]>([]);
+  const selectedSuggestionIndexRef = useRef(0);
+  const showPaletteRef = useRef(false);
+  const activeOverlayRef = useRef<OverlayId>(null);
+  const showContinuationRef = useRef(true);
+  const messagesRef = useRef<Message[]>([]);
+  const isProcessingRef = useRef(false);
+
+  const setPromptText = useCallback((text: string) => {
+    const nextBuffer = createPromptBuffer(text);
+    promptBufferRef.current = nextBuffer;
+    inputRef.current = nextBuffer.isLarge ? '' : nextBuffer.text;
+    setPromptBuffer(nextBuffer);
+    setInput(nextBuffer.isLarge ? '' : nextBuffer.text);
+  }, []);
+
+  const activePromptText = useCallback(() => promptBufferRef.current.text || inputRef.current, []);
+
+  useEffect(() => { inputRef.current = input; }, [input]);
+  useEffect(() => { suggestionsRef.current = suggestions; }, [suggestions]);
+  useEffect(() => { selectedSuggestionIndexRef.current = selectedSuggestionIndex; }, [selectedSuggestionIndex]);
+  useEffect(() => { showPaletteRef.current = showPalette; }, [showPalette]);
+  useEffect(() => { activeOverlayRef.current = activeOverlay; }, [activeOverlay]);
+  useEffect(() => { showContinuationRef.current = showContinuation; }, [showContinuation]);
+  useEffect(() => { messagesRef.current = messages; }, [messages]);
+  useEffect(() => { isProcessingRef.current = isProcessing; }, [isProcessing]);
 
   const pushEvent = useCallback((label: string, tone: CognitiveEvent['tone'] = 'normal') => {
     setEvents((prev) => [{ id: `${Date.now()}-${label}`, label, tone, timestamp: new Date() }, ...prev].slice(0, 32));
@@ -337,7 +390,10 @@ export function ConversationRuntime({
     return 'idle';
   }, [indexedFiles, isProcessing, streamContent, streamProvider]);
 
-  const adaptiveMode = useMemo(() => inferMode(input, messages.filter((m) => m.role === 'user').slice(-1)[0]?.content ?? ''), [input, messages]);
+  const adaptiveMode = useMemo(
+    () => inferMode(activePromptText(), messages.filter((m) => m.role === 'user').slice(-1)[0]?.content ?? ''),
+    [activePromptText, input, messages, promptBuffer],
+  );
   const tokenEfficiency = indexedFiles > 0 ? 94 : 71;
 
   useEffect(() => {
@@ -402,14 +458,15 @@ export function ConversationRuntime({
   }, [workingDirectory, pushEvent]);
 
   useEffect(() => {
-    if (input.startsWith('/')) {
-      setSuggestions(slashRuntime.current.getSuggestions(input).slice(0, 6));
+    const currentInput = activePromptText();
+    if (currentInput.startsWith('/')) {
+      setSuggestions(slashRuntime.current.getSuggestions(currentInput).slice(0, 6));
       setSelectedSuggestionIndex(0);
     } else {
       setSuggestions([]);
       setSelectedSuggestionIndex(0);
     }
-  }, [input]);
+  }, [activePromptText, input, promptBuffer]);
 
   const addSystemMessage = useCallback((content: string) => {
     setMessages((prev) => [...prev, { id: `sys-${Date.now()}`, role: 'system', content, timestamp: new Date() }]);
@@ -481,9 +538,9 @@ export function ConversationRuntime({
   }, [indexedFiles, workingDirectory]);
 
   const submitPrompt = useCallback(async () => {
-    const userInput = input.trim();
+    const userInput = activePromptText().trim();
     if (!userInput || isProcessing) return;
-    setInput('');
+    setPromptText('');
     setSuggestions([]);
     setShowContinuation(false);
 
@@ -557,33 +614,33 @@ export function ConversationRuntime({
       setStreamFallback(0);
       setActiveRetrieval(undefined);
     }
-  }, [activeProvider, buildRetrievalVisibility, executeSlashCommand, input, isProcessing, orchestrator, pushEvent, workingDirectory]);
+  }, [activePromptText, activeProvider, buildRetrievalVisibility, executeSlashCommand, isProcessing, orchestrator, pushEvent, setPromptText, workingDirectory]);
 
-  useInput((rawInput, key) => {
-    if (key.ctrl && rawInput === 'c') {
+  const handleTerminalEvent = useCallback((event: TerminalInputEvent) => {
+    if (event.type === 'ctrl-c') {
       exit();
       return;
     }
-    if (key.ctrl && rawInput === 'k') {
+    if (event.type === 'ctrl-k') {
       setShowPalette((prev) => !prev);
       setActiveOverlay(null);
       return;
     }
-    if (key.escape) {
-      if (showPalette) setShowPalette(false);
-      if (activeOverlay) setActiveOverlay(null);
+    if (event.type === 'escape') {
+      if (showPaletteRef.current) setShowPalette(false);
+      if (activeOverlayRef.current) setActiveOverlay(null);
       return;
     }
-    if (showPalette || activeOverlay) return;
+    if (showPaletteRef.current || activeOverlayRef.current) return;
 
-    if (showContinuation && messages.length === 0) {
-      if (rawInput.toLowerCase() === 'y') {
+    if (showContinuationRef.current && messagesRef.current.length === 0 && event.type === 'text' && !event.pasted) {
+      if (event.text.toLowerCase() === 'y') {
         setShowContinuation(false);
         addSystemMessage('Continuing previous engineering thread.');
         pushEvent('Continuation restored', 'good');
         return;
       }
-      if (rawInput.toLowerCase() === 'n') {
+      if (event.text.toLowerCase() === 'n') {
         setShowContinuation(false);
         addSystemMessage('Started a new session.');
         pushEvent('New session initialized', 'good');
@@ -591,32 +648,33 @@ export function ConversationRuntime({
       }
     }
 
-    if (key.return) {
-      if (input.trim() === '/') {
+    if (event.type === 'submit') {
+      const currentInput = activePromptText();
+      if (currentInput.trim() === '/') {
         return;
       }
 
-      if (input.trim().startsWith('/')) {
-        const executable = slashRuntime.current.resolveExecutableInput(input);
+      if (currentInput.trim().startsWith('/')) {
+        const executable = slashRuntime.current.resolveExecutableInput(currentInput);
         if (executable) {
           void executeSlashCommand(executable);
-          setInput('');
+          setPromptText('');
           setSuggestions([]);
           return;
         }
 
-        const selected = suggestions[selectedSuggestionIndex];
+        const selected = suggestionsRef.current[selectedSuggestionIndexRef.current];
         if (selected) {
-          const parts = input.trim().split(/\s+/);
+          const parts = currentInput.trim().split(/\s+/);
           const args = parts.slice(1).join(' ');
           const hasArgs = args.length > 0;
           if (!selected.command.argHint || hasArgs) {
             void executeSlashCommand(`/${selected.command.name}${hasArgs ? ` ${args}` : ''}`);
-            setInput('');
+            setPromptText('');
             setSuggestions([]);
             return;
           }
-          setInput(`/${selected.command.name} `);
+          setPromptText(`/${selected.command.name} `);
           return;
         }
       }
@@ -624,35 +682,56 @@ export function ConversationRuntime({
       void submitPrompt();
       return;
     }
-    if (key.upArrow && suggestions.length > 0) {
-      setSelectedSuggestionIndex((prev) => (prev - 1 + suggestions.length) % suggestions.length);
+    if (event.type === 'up' && suggestionsRef.current.length > 0) {
+      setSelectedSuggestionIndex((prev) => (prev - 1 + suggestionsRef.current.length) % suggestionsRef.current.length);
       return;
     }
-    if (key.downArrow && suggestions.length > 0) {
-      setSelectedSuggestionIndex((prev) => (prev + 1) % suggestions.length);
+    if (event.type === 'down' && suggestionsRef.current.length > 0) {
+      setSelectedSuggestionIndex((prev) => (prev + 1) % suggestionsRef.current.length);
       return;
     }
-    if (key.tab && input.startsWith('/') && suggestions.length > 0) {
-      const selected = suggestions[selectedSuggestionIndex];
+    if (event.type === 'tab' && activePromptText().startsWith('/') && suggestionsRef.current.length > 0) {
+      const selected = suggestionsRef.current[selectedSuggestionIndexRef.current];
       if (selected) {
-        const currentParts = input.trim().split(/\s+/);
+        const currentParts = activePromptText().trim().split(/\s+/);
         const args = currentParts.slice(1).join(' ');
-        if (selected.command.argHint) {
-          setInput(`/${selected.command.name}${args ? ` ${args}` : ' '}`);
-        } else {
-          setInput(`/${selected.command.name}`);
-        }
+        setPromptText(selected.command.argHint ? `/${selected.command.name}${args ? ` ${args}` : ' '}` : `/${selected.command.name}`);
       }
       return;
     }
-    if (key.backspace || key.delete) {
-      setInput((prev) => prev.slice(0, -1));
+    if (event.type === 'backspace') {
+      setPromptText(activePromptText().slice(0, -1));
       return;
     }
-    if (rawInput && rawInput.length === 1 && !key.ctrl && !key.meta) {
-      setInput((prev) => prev + rawInput);
+    if (event.type === 'text') {
+      const previous = event.pasted ? activePromptText() : inputRef.current;
+      setPromptText(previous + event.text);
     }
-  });
+  }, [activePromptText, addSystemMessage, executeSlashCommand, exit, pushEvent, setPromptText, submitPrompt]);
+
+  useEffect(() => {
+    const stdin = process.stdin;
+    const stdout = process.stdout;
+    if (stdout.isTTY) stdout.write(ENABLE_BRACKETED_PASTE);
+    if (stdin.isTTY) {
+      stdin.setRawMode(true);
+      stdin.resume();
+    }
+
+    const onData = (data: Buffer) => {
+      if (isProcessingRef.current) return;
+      for (const event of parseTerminalInput(data)) {
+        handleTerminalEvent(event);
+      }
+    };
+
+    stdin.on('data', onData);
+    return () => {
+      stdin.off('data', onData);
+      if (stdout.isTTY) stdout.write(DISABLE_BRACKETED_PASTE);
+      if (stdin.isTTY) stdin.setRawMode(false);
+    };
+  }, [handleTerminalEvent]);
 
   return (
     <Box flexDirection="column" minHeight={22} width={110} paddingX={1}>
@@ -718,8 +797,9 @@ export function ConversationRuntime({
       {!showPalette && !activeOverlay && (
         <CommandLayer
           value={input}
+          promptBuffer={promptBuffer}
           suggestions={suggestions}
-          showSuggestions={input.startsWith('/') && suggestions.length > 0}
+          showSuggestions={activePromptText().startsWith('/') && suggestions.length > 0}
           selectedSuggestionIndex={selectedSuggestionIndex}
           isProcessing={isProcessing}
         />
