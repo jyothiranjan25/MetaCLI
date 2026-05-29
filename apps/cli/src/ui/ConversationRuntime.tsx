@@ -803,16 +803,27 @@ export function ConversationRuntime({
     const stdin = process.stdin;
     const stdout = process.stdout;
     // Raw mode + bracketed paste — mount/unmount only, never mid-session.
-    // setRawMode guard: use the function-existence check not isTTY, because
-    // some terminal configs (tsx dev mode, VS Code terminal) set isTTY=undefined
-    // even though raw mode is available.
     if (stdout.isTTY) stdout.write(ENABLE_BRACKETED_PASTE);
     if (typeof stdin.setRawMode === 'function') stdin.setRawMode(true);
     stdin.resume();
+    stdin.ref();
+
+    // Ink tracks useInput hooks via rawModeEnabledCount. When the last hook
+    // unmounts (e.g. closing providers overlay), it calls stdin.unref() which
+    // is a TOGGLE (not a reference count) in libuv — so our ref() above gets
+    // immediately overridden. The event loop becomes empty → Node exits with 0.
+    // Fix: suppress stdin.unref() calls while ConversationRuntime is mounted.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const stdinAny = stdin as any;
+    const origUnref = stdinAny.unref?.bind(stdin) as (() => void) | undefined;
+    stdinAny.unref = () => { /* suppressed — ConversationRuntime holds the ref */ };
 
     return () => {
+      // Restore unref before unmounting so the process can exit cleanly
+      if (origUnref) stdinAny.unref = origUnref;
       if (stdout.isTTY) stdout.write(DISABLE_BRACKETED_PASTE);
       if (typeof stdin.setRawMode === 'function') stdin.setRawMode(false);
+      stdin.unref();
     };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
