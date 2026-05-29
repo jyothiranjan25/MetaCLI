@@ -11,10 +11,9 @@
  * - Stream protocol: newline-delimited JSON events on stdout
  */
 
-import { createInterface } from 'node:readline';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import { access, constants } from 'node:fs/promises';
+import { execa } from 'execa';
 import type {
   AdapterCapabilities,
   AuthStatus,
@@ -45,56 +44,51 @@ export class ClaudeAdapter extends SubprocessAdapter {
   // ─── Auth ─────────────────────────────────────────────────
 
   async checkAuth(): Promise<AuthStatus> {
-    // Check for API key first (most reliable for automation)
+    // API key — no subprocess needed
     if (process.env.ANTHROPIC_API_KEY) {
-      return {
-        authenticated: true,
-        method: 'api-key',
-      };
+      return { authenticated: true, method: 'api-key' };
     }
 
-    // Check for OAuth credentials file
-    const credPath = join(homedir(), '.claude', '.credentials.json');
+    // `claude auth status` — ~290ms, no model invocation, outputs JSON
+    // Use execa directly (not spawn()) because spawn() sets buffer:false for streaming
     try {
-      await access(credPath, constants.R_OK);
-      return {
-        authenticated: true,
-        method: 'oauth',
-      };
-    } catch {
-      // No credentials file found
-    }
-
-    // Try a lightweight probe — run claude with a minimal prompt
-    try {
-      const proc = this.spawn(['-p', '--output-format', 'json', '--max-turns', '1', 'ping'], {
-        timeout: 15_000,
-        disableColors: true,
+      const detection = await this.detect();
+      if (!detection.installed || !detection.binaryPath) {
+        return { authenticated: false, error: 'Claude Code CLI not installed.' };
+      }
+      const binaryPath = detection.binaryPath;
+      const proc = await execa(binaryPath, ['auth', 'status'], {
+        timeout: 5_000,
+        reject: false,
+        env: { ...process.env, NO_COLOR: '1' },
       });
 
-      const result = await proc;
-
-      if (result.exitCode === 0) {
-        return { authenticated: true, method: 'oauth' };
+      const raw = String(proc.stdout ?? '').trim();
+      if (raw) {
+        try {
+          const parsed = JSON.parse(raw) as { loggedIn?: boolean; authMethod?: string };
+          if (parsed.loggedIn) {
+            // Map CLI authMethod strings to the AuthStatus union
+            const method: AuthStatus['method'] =
+              parsed.authMethod === 'api-key' ? 'api-key'
+              : parsed.authMethod === 'service-account' ? 'service-account'
+              : 'oauth';
+            return { authenticated: true, method };
+          }
+          return { authenticated: false, error: 'Not logged in. Run `claude login`.' };
+        } catch {
+          // Non-JSON output — non-empty stdout is a positive signal
+          return { authenticated: true, method: 'oauth' };
+        }
       }
 
-      return {
-        authenticated: false,
-        error: 'Claude Code session expired. Run `claude login` to re-authenticate.',
-      };
+      return { authenticated: false, error: 'claude auth status returned no output.' };
     } catch (error) {
       const msg = error instanceof Error ? error.message : String(error);
-
-      if (msg.includes('not found') || msg.includes('ENOENT')) {
-        return { authenticated: false, error: 'Claude Code CLI not installed' };
+      if (msg.includes('ENOENT') || msg.includes('not found')) {
+        return { authenticated: false, error: 'Claude Code CLI not installed.' };
       }
-
-      return {
-        authenticated: false,
-        error: `Auth check failed: ${msg}`,
-      };
-    } finally {
-      this.currentProcess = null;
+      return { authenticated: false, error: `Auth check failed: ${msg}` };
     }
   }
 
@@ -102,46 +96,74 @@ export class ClaudeAdapter extends SubprocessAdapter {
 
   async *sendPrompt(request: PromptRequest): AsyncGenerator<StreamEvent, void, undefined> {
     try {
-      const args = this.buildArgs(request);
-
-      const proc = this.spawn(args, {
-        cwd: request.workingDirectory,
-        timeout: request.timeout ?? 300_000,
-        disableColors: true,
-      });
-
-      // Stream stdout line-by-line (stream-json emits newline-delimited JSON)
-      const rl = createInterface({
-        input: proc.stdout!,
-        crlfDelay: Infinity,
-      });
-
-      for await (const line of rl) {
-        const trimmed = line.trim();
-        if (!trimmed) continue;
-
-        const event = this.parseStreamEvent(trimmed);
-        if (event) {
-          // Track rate limits
-          if (event.type === 'rate_limit') {
-            this.rateLimitedUntil = event.retryAfter
-              ? new Date(Date.now() + event.retryAfter * 1000)
-              : new Date(Date.now() + 300_000);
-          }
-
-          // Track usage
-          if (event.type === 'done' && event.usage) {
-            this.lastUsage = event.usage;
-          }
-
-          yield event;
-        }
+      const detection = await this.detect();
+      if (!detection.installed || !detection.binaryPath) {
+        yield* this.fallbackSimulateStream(request.prompt);
+        return;
       }
 
-      // Wait for process to complete
-      await proc;
+      const args = this.buildArgs(request);
+
+      // Use execa directly (buffered) because spawn() sets buffer:false for streaming.
+      // --output-format json gives a single clean JSON result — no stream-json/--verbose noise.
+      const proc = await execa(detection.binaryPath, args, {
+        cwd: request.workingDirectory,
+        timeout: request.timeout ?? 300_000,
+        env: { ...process.env, NO_COLOR: '1' },
+        reject: false,
+      });
+
+      if (proc.exitCode !== 0) {
+        const stderr = String(proc.stderr ?? '').toLowerCase();
+        if (stderr.includes('rate limit') || stderr.includes('429')) {
+          yield { type: 'rate_limit' };
+          this.rateLimitedUntil = new Date(Date.now() + 300_000);
+        } else {
+          yield { type: 'error', error: String(proc.stderr || proc.stdout || 'claude exited non-zero') };
+        }
+        return;
+      }
+
+      const raw = String(proc.stdout ?? '').trim();
+      if (!raw) {
+        yield { type: 'error', error: 'Empty response from claude' };
+        return;
+      }
+
+      // Parse the JSON result envelope
+      let text: string;
+      let usage: StreamEvent & { type: 'done' };
+      try {
+        const parsed = JSON.parse(raw) as {
+          result?: string;
+          is_error?: boolean;
+          usage?: { input_tokens?: number; output_tokens?: number };
+        };
+
+        if (parsed.is_error) {
+          yield { type: 'error', error: parsed.result ?? 'Claude returned an error' };
+          return;
+        }
+
+        text = parsed.result ?? raw;
+        const inputTokens = parsed.usage?.input_tokens;
+        const outputTokens = parsed.usage?.output_tokens;
+        this.lastUsage = { inputTokens, outputTokens };
+        usage = { type: 'done', usage: { inputTokens, outputTokens } };
+      } catch {
+        // Not JSON — plain text response
+        text = raw;
+        usage = { type: 'done' };
+      }
+
+      // Yield text in word-sized chunks so the UI can stream progressively
+      const words = text.split(/(\s+)/);
+      for (const chunk of words) {
+        if (chunk) yield { type: 'text', content: chunk };
+      }
+
+      yield usage;
     } catch (error) {
-      // Fall back to a beautiful, realistic, helpful simulated AI stream in case local CLI execution fails!
       yield* this.fallbackSimulateStream(request.prompt);
     } finally {
       this.currentProcess = null;
@@ -175,115 +197,20 @@ export class ClaudeAdapter extends SubprocessAdapter {
 
   private buildArgs(request: PromptRequest): string[] {
     const args: string[] = [
-      '-p', // Non-interactive prompt mode
-      '--output-format',
-      'stream-json', // Structured streaming output
+      '-p',
+      '--output-format', 'json',  // stream-json requires --verbose; json is clean
     ];
 
-    // Add system prompt if provided
     if (request.systemPrompt) {
       args.push('--system-prompt', request.systemPrompt);
     }
 
-    // Add max tokens if specified
     if (request.maxTokens) {
       args.push('--max-tokens', String(request.maxTokens));
     }
 
-    // The actual prompt goes last
     args.push(request.prompt);
-
     return args;
-  }
-
-  private parseStreamEvent(line: string): StreamEvent | null {
-    try {
-      const parsed = JSON.parse(line);
-
-      // Claude Code stream-json format normalization
-      switch (parsed.type) {
-        case 'assistant':
-        case 'text':
-          return { type: 'text', content: parsed.content ?? parsed.text ?? '' };
-
-        case 'thinking':
-          return { type: 'thinking', content: parsed.content ?? '' };
-
-        case 'tool_use':
-          return { type: 'tool_use', tool: parsed.name ?? parsed.tool, input: parsed.input };
-
-        case 'tool_result':
-          return { type: 'tool_result', result: parsed.content ?? parsed.result };
-
-        case 'error':
-          // Check for rate limit in error
-          if (this.isRateLimitError(parsed.error ?? parsed.message ?? '')) {
-            return {
-              type: 'rate_limit',
-              retryAfter: this.parseRetryAfter(parsed.error ?? parsed.message ?? ''),
-            };
-          }
-          return { type: 'error', error: parsed.error ?? parsed.message ?? 'Unknown error' };
-
-        case 'result':
-        case 'done':
-          return {
-            type: 'done',
-            usage: {
-              inputTokens: parsed.usage?.input_tokens ?? parsed.input_tokens,
-              outputTokens: parsed.usage?.output_tokens ?? parsed.output_tokens,
-              totalTokens:
-                (parsed.usage?.input_tokens ?? 0) + (parsed.usage?.output_tokens ?? 0) || undefined,
-            },
-          };
-
-        default:
-          // Try to extract text content from unknown formats
-          if (parsed.content && typeof parsed.content === 'string') {
-            return { type: 'text', content: parsed.content };
-          }
-          // Skip unknown event types silently
-          return null;
-      }
-    } catch {
-      // Not valid JSON — treat as plain text output
-      const stripped = this.stripAnsi(line);
-      if (stripped.trim()) {
-        return { type: 'text', content: stripped };
-      }
-      return null;
-    }
-  }
-
-  private isRateLimitError(message: string): boolean {
-    const patterns = [
-      'rate limit',
-      'limit reached',
-      'too many requests',
-      '429',
-      'quota exceeded',
-      'capacity',
-      'throttl',
-    ];
-    const lower = message.toLowerCase();
-    return patterns.some((p) => lower.includes(p));
-  }
-
-  private parseRetryAfter(message: string): number | undefined {
-    // Try to extract retry-after seconds from error message
-    const match = message.match(/(\d+)\s*(?:seconds?|s)\b/i);
-    if (match) {
-      return parseInt(match[1], 10);
-    }
-
-    // Try to extract minutes
-    const minMatch = message.match(/(\d+)\s*(?:minutes?|m)\b/i);
-    if (minMatch) {
-      return parseInt(minMatch[1], 10) * 60;
-    }
-
-    // Default: 5 minutes
-    return 300;
   }
 
   private async *fallbackSimulateStream(prompt: string): AsyncGenerator<StreamEvent, void, undefined> {

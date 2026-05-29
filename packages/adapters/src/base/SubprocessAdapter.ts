@@ -48,21 +48,28 @@ export abstract class SubprocessAdapter implements AIAdapter {
 
   private cachedBinaryPath: string | null = null;
   private lastHealthCheck: HealthStatus | null = null;
+  private lastHealthCheckAt = 0;
+  private cachedDetection: DetectionResult | null = null;
+  private static readonly HEALTH_TTL_MS = 30_000; // reuse within 30 s
 
   // ─── Lifecycle ──────────────────────────────────────────────
 
   async detect(): Promise<DetectionResult> {
+    // Return cached result if binary was already located this session
+    if (this.cachedDetection) return this.cachedDetection;
+
     // Try primary binary name
     const path = await this.findBinary(this.binaryName);
     if (path) {
       this.cachedBinaryPath = path;
       const version = await this.getVersion(path);
-      return {
+      this.cachedDetection = {
         installed: true,
         binaryPath: path,
         version: version ?? undefined,
         configDir: this.getConfigDir(),
       };
+      return this.cachedDetection;
     }
 
     // Try alternatives
@@ -71,30 +78,36 @@ export abstract class SubprocessAdapter implements AIAdapter {
       if (altPath) {
         this.cachedBinaryPath = altPath;
         const version = await this.getVersion(altPath);
-        return {
+        this.cachedDetection = {
           installed: true,
           binaryPath: altPath,
           version: version ?? undefined,
           configDir: this.getConfigDir(),
         };
+        return this.cachedDetection;
       }
     }
 
-    return { installed: false };
+    this.cachedDetection = { installed: false };
+    return this.cachedDetection;
   }
 
   abstract checkAuth(): Promise<AuthStatus>;
 
   async checkHealth(): Promise<HealthStatus> {
+    // Return cached result within TTL — avoids repeated subprocess spawns
+    const age = Date.now() - this.lastHealthCheckAt;
+    if (this.lastHealthCheck && age < SubprocessAdapter.HEALTH_TTL_MS) {
+      return this.lastHealthCheck;
+    }
+
     const detection = await this.detect();
 
     if (!detection.installed) {
-      return {
-        healthy: false,
-        rateLimited: false,
-        score: 0,
-        lastChecked: new Date(),
-      };
+      const result: HealthStatus = { healthy: false, rateLimited: false, score: 0, lastChecked: new Date() };
+      this.lastHealthCheck = result;
+      this.lastHealthCheckAt = Date.now();
+      return result;
     }
 
     const auth = await this.checkAuth();
@@ -106,6 +119,7 @@ export abstract class SubprocessAdapter implements AIAdapter {
       score: healthy ? 100 : 0,
       lastChecked: new Date(),
     };
+    this.lastHealthCheckAt = Date.now();
 
     return this.lastHealthCheck;
   }

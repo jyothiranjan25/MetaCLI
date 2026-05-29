@@ -297,15 +297,21 @@ const CommandLayer = React.memo(({
         <>
           {promptBuffer.isLarge ? (
             <Box flexDirection="column">
-              <Text color="green">✓ Large prompt detected</Text>
-              <Text color="green">✓ {promptBuffer.lineCount.toLocaleString()} lines</Text>
-              <Text color="green">✓ Ready to send</Text>
+              <Text color="green">✓ {promptBuffer.lineCount.toLocaleString()} lines loaded — Enter to send</Text>
+              <Box>
+                <Text color="gray">+ </Text>
+                <Text color="white">{value}</Text>
+                <Text color="green">▌</Text>
+                {!value && <Text color="gray" dimColor>type to append, Enter to send</Text>}
+              </Box>
             </Box>
           ) : (
-            <Text color={value.startsWith('/') ? 'cyan' : 'white'}>{value.startsWith('/') ? value.slice(1) : value}</Text>
+            <>
+              <Text color={value.startsWith('/') ? 'cyan' : 'white'}>{value.startsWith('/') ? value.slice(1) : value}</Text>
+              <Text color="green">▌</Text>
+              {!value && <Text color="gray">ask, or type / for commands</Text>}
+            </>
           )}
-          <Text color="green">▌</Text>
-          {!value && !promptBuffer.isLarge && <Text color="gray">ask, or type / for commands</Text>}
         </>
       )}
     </Box>
@@ -351,6 +357,8 @@ export function ConversationRuntime({
   const slashRuntime = useRef(new SlashCommandRuntime());
   const promptBufferRef = useRef<PromptBufferState>(EMPTY_PROMPT_BUFFER);
   const inputRef = useRef('');
+  // Tracks the paste base so typed additions can be isolated for display
+  const pasteBaseRef = useRef('');
   const suggestionsRef = useRef<CommandSuggestion[]>([]);
   const selectedSuggestionIndexRef = useRef(0);
   const showPaletteRef = useRef(false);
@@ -362,9 +370,13 @@ export function ConversationRuntime({
   const setPromptText = useCallback((text: string) => {
     const nextBuffer = createPromptBuffer(text);
     promptBufferRef.current = nextBuffer;
-    inputRef.current = nextBuffer.isLarge ? '' : nextBuffer.text;
     setPromptBuffer(nextBuffer);
-    setInput(nextBuffer.isLarge ? '' : nextBuffer.text);
+    if (!nextBuffer.isLarge) {
+      // Normal mode: keep input in sync with the full text
+      inputRef.current = nextBuffer.text;
+      setInput(nextBuffer.text);
+    }
+    // Large mode: callers manage inputRef/input directly to preserve the typed tail
   }, []);
 
   const activePromptText = useCallback(() => promptBufferRef.current.text || inputRef.current, []);
@@ -700,12 +712,61 @@ export function ConversationRuntime({
       return;
     }
     if (event.type === 'backspace') {
-      setPromptText(activePromptText().slice(0, -1));
+      if (promptBufferRef.current.isLarge) {
+        if (inputRef.current.length > 0) {
+          // Remove from the typed tail (visible in input line)
+          const newTail = inputRef.current.slice(0, -1);
+          inputRef.current = newTail;
+          setInput(newTail);
+          const newFull = pasteBaseRef.current + newTail;
+          const nb = createPromptBuffer(newFull);
+          promptBufferRef.current = nb;
+          setPromptBuffer(nb);
+        } else {
+          // Tail exhausted — backspace into the paste base
+          const newFull = promptBufferRef.current.text.slice(0, -1);
+          const nb = createPromptBuffer(newFull);
+          promptBufferRef.current = nb;
+          pasteBaseRef.current = newFull;
+          setPromptBuffer(nb);
+          if (!nb.isLarge) {
+            // Shrunk below large threshold — resume normal mode
+            inputRef.current = nb.text;
+            setInput(nb.text);
+          }
+        }
+      } else {
+        setPromptText(activePromptText().slice(0, -1));
+      }
       return;
     }
     if (event.type === 'text') {
-      const previous = event.pasted ? activePromptText() : inputRef.current;
-      setPromptText(previous + event.text);
+      if (event.pasted) {
+        // Pasted content: update full buffer, reset typed tail
+        const newText = activePromptText() + event.text;
+        const nb = createPromptBuffer(newText);
+        promptBufferRef.current = nb;
+        setPromptBuffer(nb);
+        if (nb.isLarge) {
+          pasteBaseRef.current = newText;
+          inputRef.current = '';
+          setInput('');
+        } else {
+          inputRef.current = nb.text;
+          setInput(nb.text);
+        }
+      } else if (promptBufferRef.current.isLarge) {
+        // Typing after large paste — append to tail (shown in input line)
+        const newTail = inputRef.current + event.text;
+        inputRef.current = newTail;
+        setInput(newTail);
+        const newFull = pasteBaseRef.current + newTail;
+        const nb = createPromptBuffer(newFull);
+        promptBufferRef.current = nb;
+        setPromptBuffer(nb);
+      } else {
+        setPromptText(activePromptText() + event.text);
+      }
     }
   }, [activePromptText, addSystemMessage, executeSlashCommand, exit, pushEvent, setPromptText, submitPrompt]);
 

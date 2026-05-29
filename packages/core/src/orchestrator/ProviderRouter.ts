@@ -150,28 +150,31 @@ export class ProviderRouter {
 
   private async getAvailableCandidates(request: RoutingRequest): Promise<AIAdapter[]> {
     const excludeSet = new Set(request.excludeProviders ?? []);
-    const candidates: AIAdapter[] = [];
 
-    for (const [id, adapter] of this.adapters) {
-      // Skip explicitly excluded
-      if (excludeSet.has(id)) continue;
-
-      // Skip providers in cooldown
-      if (this.isInCooldown(id)) continue;
-
-      // Skip providers with critically low health
+    // Pre-filter synchronously before any async work
+    const eligible = [...this.adapters.entries()].filter(([id]) => {
+      if (excludeSet.has(id)) return false;
+      if (this.isInCooldown(id)) return false;
       const score = this.healthScores.get(id) ?? 0;
-      if (score < this.config.healthScoreThreshold) continue;
+      return score >= this.config.healthScoreThreshold;
+    });
 
-      // Verify the provider is still available
-      try {
+    // Check all eligible providers in parallel — eliminates serial subprocess stacking
+    const results = await Promise.allSettled(
+      eligible.map(async ([id, adapter]) => {
         const health = await adapter.checkHealth();
-        if (health.healthy) {
-          candidates.push(adapter);
-        }
-      } catch {
-        // Provider check failed — skip it
-        this.healthScores.set(id, Math.max(0, (this.healthScores.get(id) ?? 50) - 10));
+        return { id, adapter, healthy: health.healthy };
+      }),
+    );
+
+    const candidates: AIAdapter[] = [];
+    for (const result of results) {
+      if (result.status === 'fulfilled' && result.value.healthy) {
+        candidates.push(result.value.adapter);
+      } else if (result.status === 'rejected') {
+        // Provider check threw — penalise health score but don't crash routing
+        const id = eligible.find((_, i) => i === results.indexOf(result))?.[0];
+        if (id) this.healthScores.set(id, Math.max(0, (this.healthScores.get(id) ?? 50) - 10));
       }
     }
 

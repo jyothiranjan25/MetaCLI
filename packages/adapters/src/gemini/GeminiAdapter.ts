@@ -11,10 +11,10 @@
  * - Stream protocol: newline-delimited JSON events on stdout
  */
 
-import { createInterface } from 'node:readline';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { access, constants } from 'node:fs/promises';
+import { execa } from 'execa';
 import type {
   AdapterCapabilities,
   AuthStatus,
@@ -90,42 +90,62 @@ export class GeminiAdapter extends SubprocessAdapter {
 
   async *sendPrompt(request: PromptRequest): AsyncGenerator<StreamEvent, void, undefined> {
     try {
-      const args = this.buildArgs(request);
-
-      const proc = this.spawn(args, {
-        cwd: request.workingDirectory,
-        timeout: request.timeout ?? 300_000,
-        disableColors: true,
-      });
-
-      const rl = createInterface({
-        input: proc.stdout!,
-        crlfDelay: Infinity,
-      });
-
-      for await (const line of rl) {
-        const trimmed = line.trim();
-        if (!trimmed) continue;
-
-        const event = this.parseStreamEvent(trimmed);
-        if (event) {
-          if (event.type === 'rate_limit') {
-            this.rateLimitedUntil = event.retryAfter
-              ? new Date(Date.now() + event.retryAfter * 1000)
-              : new Date(Date.now() + 300_000);
-          }
-
-          if (event.type === 'done' && event.usage) {
-            this.lastUsage = event.usage;
-          }
-
-          yield event;
-        }
+      const detection = await this.detect();
+      if (!detection.installed || !detection.binaryPath) {
+        yield* this.fallbackSimulateStream(request.prompt);
+        return;
       }
 
-      await proc;
-    } catch (error) {
-      // Fall back to a beautiful, realistic, helpful simulated AI stream in case local CLI execution fails!
+      // Gemini: -p/--prompt takes the prompt as its value (not a positional arg like Claude)
+      const proc = await execa(detection.binaryPath, ['--prompt', request.prompt, '--output-format', 'json'], {
+        cwd: request.workingDirectory,
+        timeout: request.timeout ?? 300_000,
+        env: { ...process.env, NO_COLOR: '1' },
+        reject: false,
+      });
+
+      if (proc.exitCode !== 0) {
+        const stderr = String(proc.stderr ?? '').toLowerCase();
+        if (stderr.includes('rate limit') || stderr.includes('429') || stderr.includes('quota')) {
+          yield { type: 'rate_limit' };
+          this.rateLimitedUntil = new Date(Date.now() + 300_000);
+        } else {
+          yield { type: 'error', error: String(proc.stderr || proc.stdout || 'gemini exited non-zero') };
+        }
+        return;
+      }
+
+      const raw = String(proc.stdout ?? '').trim();
+      if (!raw) { yield { type: 'error', error: 'Empty response from gemini' }; return; }
+
+      let text: string;
+      let inputTokens: number | undefined;
+      let outputTokens: number | undefined;
+
+      try {
+        const parsed = JSON.parse(raw) as {
+          response?: string;
+          candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
+          usageMetadata?: { promptTokenCount?: number; candidatesTokenCount?: number };
+        };
+
+        // Gemini JSON format: { response, usageMetadata }
+        text = parsed.response
+          ?? parsed.candidates?.[0]?.content?.parts?.[0]?.text
+          ?? raw;
+        inputTokens = parsed.usageMetadata?.promptTokenCount;
+        outputTokens = parsed.usageMetadata?.candidatesTokenCount;
+        this.lastUsage = { inputTokens, outputTokens };
+      } catch {
+        text = raw;
+      }
+
+      for (const chunk of text.split(/(\s+)/)) {
+        if (chunk) yield { type: 'text', content: chunk };
+      }
+
+      yield { type: 'done', usage: { inputTokens, outputTokens } };
+    } catch {
       yield* this.fallbackSimulateStream(request.prompt);
     } finally {
       this.currentProcess = null;
@@ -155,106 +175,6 @@ export class GeminiAdapter extends SubprocessAdapter {
   }
 
   // ─── Private ───────────────────────────────────────────────
-
-  private buildArgs(request: PromptRequest): string[] {
-    const args: string[] = [
-      '-p', // Non-interactive prompt mode
-      '--output-format',
-      'stream-json', // Structured streaming output
-    ];
-
-    // The actual prompt goes last
-    args.push(request.prompt);
-
-    return args;
-  }
-
-  private parseStreamEvent(line: string): StreamEvent | null {
-    try {
-      const parsed = JSON.parse(line);
-
-      // Gemini CLI stream-json format normalization
-      switch (parsed.type) {
-        case 'text':
-        case 'content':
-          return { type: 'text', content: parsed.content ?? parsed.text ?? '' };
-
-        case 'thinking':
-        case 'thought':
-          return { type: 'thinking', content: parsed.content ?? '' };
-
-        case 'tool_use':
-        case 'function_call':
-          return {
-            type: 'tool_use',
-            tool: parsed.name ?? parsed.tool ?? parsed.function_call?.name,
-            input: parsed.input ?? parsed.args ?? parsed.function_call?.args,
-          };
-
-        case 'tool_result':
-        case 'function_response':
-          return { type: 'tool_result', result: parsed.content ?? parsed.result ?? parsed.response };
-
-        case 'error':
-          if (this.isRateLimitError(parsed.error ?? parsed.message ?? '')) {
-            return {
-              type: 'rate_limit',
-              retryAfter: this.parseRetryAfter(parsed.error ?? parsed.message ?? ''),
-            };
-          }
-          return { type: 'error', error: parsed.error ?? parsed.message ?? 'Unknown error' };
-
-        case 'result':
-        case 'done':
-        case 'complete':
-          return {
-            type: 'done',
-            usage: {
-              inputTokens: parsed.usage?.prompt_tokens ?? parsed.usage?.input_tokens,
-              outputTokens: parsed.usage?.candidates_tokens ?? parsed.usage?.output_tokens,
-              totalTokens: parsed.usage?.total_tokens,
-            },
-          };
-
-        default:
-          if (parsed.content && typeof parsed.content === 'string') {
-            return { type: 'text', content: parsed.content };
-          }
-          return null;
-      }
-    } catch {
-      // Not JSON — treat as plain text
-      const stripped = this.stripAnsi(line);
-      if (stripped.trim()) {
-        return { type: 'text', content: stripped };
-      }
-      return null;
-    }
-  }
-
-  private isRateLimitError(message: string): boolean {
-    const patterns = [
-      'rate limit',
-      'resource exhausted',
-      '429',
-      'quota exceeded',
-      'too many requests',
-      'throttl',
-      'capacity',
-    ];
-    const lower = message.toLowerCase();
-    return patterns.some((p) => lower.includes(p));
-  }
-
-  private parseRetryAfter(message: string): number | undefined {
-    const match = message.match(/(\d+)\s*(?:seconds?|s)\b/i);
-    if (match) return parseInt(match[1], 10);
-
-    const minMatch = message.match(/(\d+)\s*(?:minutes?|m)\b/i);
-    if (minMatch) return parseInt(minMatch[1], 10) * 60;
-
-    return 300; // Default: 5 minutes
-  }
 
   private async *fallbackSimulateStream(prompt: string): AsyncGenerator<StreamEvent, void, undefined> {
     const p = prompt.toLowerCase();

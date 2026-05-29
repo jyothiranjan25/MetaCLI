@@ -126,33 +126,37 @@ export class Orchestrator {
     const results = new Map<string, { installed: boolean; authenticated: boolean }>();
     const adapters = this.router.getAllAdapters();
 
+    // Call checkHealth() (not detect+checkAuth separately) so the TTL cache is
+    // warmed here and selectProvider() reuses the result instead of re-running.
     await Promise.all(
       adapters.map(async (adapter) => {
         try {
           const detection = await adapter.detect();
 
-          if (detection.installed) {
-            await this.eventBus.emit('provider:detected', {
-              adapterId: adapter.id,
-              version: detection.version ?? 'unknown',
-              binaryPath: detection.binaryPath ?? 'unknown',
-            });
-
-            const auth = await adapter.checkAuth();
-            if (auth.authenticated) {
-              await this.eventBus.emit('provider:auth_valid', {
-                adapterId: adapter.id,
-                method: auth.method ?? 'unknown',
-              });
-            }
-
-            results.set(adapter.id, {
-              installed: true,
-              authenticated: auth.authenticated,
-            });
-          } else {
+          if (!detection.installed) {
             results.set(adapter.id, { installed: false, authenticated: false });
+            return;
           }
+
+          await this.eventBus.emit('provider:detected', {
+            adapterId: adapter.id,
+            version: detection.version ?? 'unknown',
+            binaryPath: detection.binaryPath ?? 'unknown',
+          });
+
+          // checkHealth() warms its own TTL cache — subsequent selectProvider()
+          // calls within the next 30 s will return instantly without re-spawning.
+          const health = await adapter.checkHealth();
+          const authenticated = health.healthy;
+
+          if (authenticated) {
+            await this.eventBus.emit('provider:auth_valid', {
+              adapterId: adapter.id,
+              method: 'detected',
+            });
+          }
+
+          results.set(adapter.id, { installed: true, authenticated });
         } catch {
           results.set(adapter.id, { installed: false, authenticated: false });
         }

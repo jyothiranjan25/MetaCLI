@@ -70,7 +70,7 @@ export const generateAccessToken = (userId: string, role: string): string => {
     { expiresIn: '1800s' }
   );
 };
-\`\`\`
+\`\`\`/
 
 Let me know if you would like me to draft corresponding validation helper middlewares!`;
     } else {
