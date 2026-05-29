@@ -41,7 +41,7 @@ export async function askCommand(prompt: string, options: AskCommandOptions): Pr
       process.exit(1);
     }
 
-    // Render the Ink UI
+    // exitOnCtrlC:false — let AskView's own Ctrl+C handler control exit
     const { waitUntilExit } = render(
       React.createElement(AskView, {
         orchestrator,
@@ -53,9 +53,11 @@ export async function askCommand(prompt: string, options: AskCommandOptions): Pr
         systemPrompt: options.system,
         verbose: options.verbose ?? false,
       }),
+      { exitOnCtrlC: false },
     );
 
     await waitUntilExit();
+    process.exit(0);
   } catch (error) {
     console.error(
       '❌ Error:',

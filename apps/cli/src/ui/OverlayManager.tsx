@@ -6,7 +6,7 @@
  */
 
 import React from 'react';
-import { Box, Text, useInput } from 'ink';
+import { Box, Text } from 'ink';
 import { ProvidersOverlay } from './overlays/ProvidersOverlay.js';
 import { BrainOverlay } from './overlays/BrainOverlay.js';
 import { UsageOverlay } from './overlays/UsageOverlay.js';
@@ -79,12 +79,9 @@ function PlaceholderOverlay({ id }: { id: string }): React.ReactElement {
 }
 
 export function OverlayManager({ activeOverlay, context, onClose }: OverlayManagerProps): React.ReactElement | null {
-  useInput((input, key) => {
-    if (key.escape || (key.ctrl && input === 'c')) {
-      onClose();
-    }
-  });
-
+  // ESC and Ctrl+C are handled by ConversationRuntime's raw stdin handler.
+  // A duplicate useInput here was causing Ctrl+C to fire onClose() and exit()
+  // simultaneously, closing the app instead of just dismissing the overlay.
   if (!activeOverlay) return null;
 
   const renderOverlay = () => {

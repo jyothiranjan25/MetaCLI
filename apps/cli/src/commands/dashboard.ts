@@ -13,15 +13,18 @@ export async function dashboardCommand(options: DashboardCommandOptions): Promis
     const { orchestrator, eventBus, resolvedDir } = await bootstrap(options.dir);
 
     // Boot conversation-first UI
+    // exitOnCtrlC:false — ConversationRuntime owns Ctrl+C to close overlays first
     const { waitUntilExit } = render(
       React.createElement(ConversationRuntime, {
         orchestrator,
         eventBus,
         workingDirectory: resolvedDir,
       }),
+      { exitOnCtrlC: false },
     );
 
     await waitUntilExit();
+    process.exit(0);
   } catch (error) {
     console.error(
       '❌ Error:',

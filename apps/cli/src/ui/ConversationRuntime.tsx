@@ -366,6 +366,12 @@ export function ConversationRuntime({
   const showContinuationRef = useRef(true);
   const messagesRef = useRef<Message[]>([]);
   const isProcessingRef = useRef(false);
+  // Stable refs for functions used in handleTerminalEvent.
+  // Without these, every activeProvider change regenerates submitPrompt →
+  // handleTerminalEvent → triggers Effect 2 cleanup (removes onData listener)
+  // → brief window with no listener → Ink's raw stdin handling takes over alone.
+  const submitPromptRef = useRef<() => Promise<void>>(() => Promise.resolve());
+  const executeSlashCommandRef = useRef<(raw: string) => Promise<void>>(() => Promise.resolve());
 
   const setPromptText = useCallback((text: string) => {
     const nextBuffer = createPromptBuffer(text);
@@ -550,6 +556,9 @@ export function ConversationRuntime({
   }, [indexedFiles, workingDirectory]);
 
   const submitPrompt = useCallback(async () => {
+    // Outer try-catch: executeSlashCommand at line ~560 was outside the inner
+    // try-catch, so any throw from it became an unhandled rejection → process crash.
+    try {
     const userInput = activePromptText().trim();
     if (!userInput || isProcessing) return;
     setPromptText('');
@@ -626,11 +635,28 @@ export function ConversationRuntime({
       setStreamFallback(0);
       setActiveRetrieval(undefined);
     }
+    } catch (outerErr) {
+      // Catches anything thrown outside the inner try-catch (e.g. executeSlashCommand)
+      pushEvent(`Runtime error: ${outerErr instanceof Error ? outerErr.message : String(outerErr)}`, 'warn');
+      setIsProcessing(false);
+    }
   }, [activePromptText, activeProvider, buildRetrievalVisibility, executeSlashCommand, isProcessing, orchestrator, pushEvent, setPromptText, workingDirectory]);
+
+  // Keep stable refs pointing to latest closures so handleTerminalEvent never
+  // needs these in its own dep array — prevents Effect 2 from re-running on
+  // every provider/state change.
+  useEffect(() => { submitPromptRef.current = submitPrompt; }, [submitPrompt]);
+  useEffect(() => { executeSlashCommandRef.current = executeSlashCommand; }, [executeSlashCommand]);
 
   const handleTerminalEvent = useCallback((event: TerminalInputEvent) => {
     if (event.type === 'ctrl-c') {
+      // Close overlays/palette first; only exit when nothing is open
+      if (showPaletteRef.current) { setShowPalette(false); return; }
+      if (activeOverlayRef.current) { setActiveOverlay(null); return; }
       exit();
+      // Background timers (scan workers, monitors) keep the event loop alive
+      // after Ink unmounts, so force-exit after a short drain window.
+      setTimeout(() => process.exit(0), 150);
       return;
     }
     if (event.type === 'ctrl-k') {
@@ -669,7 +695,7 @@ export function ConversationRuntime({
       if (currentInput.trim().startsWith('/')) {
         const executable = slashRuntime.current.resolveExecutableInput(currentInput);
         if (executable) {
-          void executeSlashCommand(executable);
+          executeSlashCommandRef.current(executable).catch(err => pushEvent(`Command error: ${err instanceof Error ? err.message : String(err)}`, 'warn'));
           setPromptText('');
           setSuggestions([]);
           return;
@@ -681,7 +707,7 @@ export function ConversationRuntime({
           const args = parts.slice(1).join(' ');
           const hasArgs = args.length > 0;
           if (!selected.command.argHint || hasArgs) {
-            void executeSlashCommand(`/${selected.command.name}${hasArgs ? ` ${args}` : ''}`);
+            executeSlashCommandRef.current(`/${selected.command.name}${hasArgs ? ` ${args}` : ''}`).catch(err => pushEvent(`Command error: ${err instanceof Error ? err.message : String(err)}`, 'warn'));
             setPromptText('');
             setSuggestions([]);
             return;
@@ -691,7 +717,7 @@ export function ConversationRuntime({
         }
       }
 
-      void submitPrompt();
+      submitPromptRef.current().catch(err => pushEvent(`Submit error: ${err instanceof Error ? err.message : String(err)}`, 'warn'));
       return;
     }
     if (event.type === 'up' && suggestionsRef.current.length > 0) {
@@ -768,30 +794,40 @@ export function ConversationRuntime({
         setPromptText(activePromptText() + event.text);
       }
     }
-  }, [activePromptText, addSystemMessage, executeSlashCommand, exit, pushEvent, setPromptText, submitPrompt]);
+  // submitPrompt and executeSlashCommand are accessed via refs — removing them
+  // from deps means this callback is stable and Effect 2 (data listener) never
+  // re-registers when activeProvider or other prompt-related state changes.
+  }, [activePromptText, addSystemMessage, exit, pushEvent, setPromptText]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     const stdin = process.stdin;
     const stdout = process.stdout;
+    // Raw mode + bracketed paste — mount/unmount only, never mid-session.
+    // setRawMode guard: use the function-existence check not isTTY, because
+    // some terminal configs (tsx dev mode, VS Code terminal) set isTTY=undefined
+    // even though raw mode is available.
     if (stdout.isTTY) stdout.write(ENABLE_BRACKETED_PASTE);
-    if (stdin.isTTY) {
-      stdin.setRawMode(true);
-      stdin.resume();
-    }
+    if (typeof stdin.setRawMode === 'function') stdin.setRawMode(true);
+    stdin.resume();
 
+    return () => {
+      if (stdout.isTTY) stdout.write(DISABLE_BRACKETED_PASTE);
+      if (typeof stdin.setRawMode === 'function') stdin.setRawMode(false);
+    };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    const stdin = process.stdin;
+    // Data listener re-registers when handleTerminalEvent changes (e.g. new
+    // activeProvider), but never touches raw mode — that's handled above.
     const onData = (data: Buffer) => {
       if (isProcessingRef.current) return;
       for (const event of parseTerminalInput(data)) {
         handleTerminalEvent(event);
       }
     };
-
     stdin.on('data', onData);
-    return () => {
-      stdin.off('data', onData);
-      if (stdout.isTTY) stdout.write(DISABLE_BRACKETED_PASTE);
-      if (stdin.isTTY) stdin.setRawMode(false);
-    };
+    return () => { stdin.off('data', onData); };
   }, [handleTerminalEvent]);
 
   return (
@@ -830,7 +866,7 @@ export function ConversationRuntime({
             eventBus,
             activeProvider,
             onSelectProvider: (providerId) => {
-              void executeSlashCommand(`/provider ${providerId}`);
+              executeSlashCommand(`/provider ${providerId}`).catch(err => pushEvent(`Provider switch error: ${err instanceof Error ? err.message : String(err)}`, 'warn'));
               setActiveOverlay(null);
             },
           }}

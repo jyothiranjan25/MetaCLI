@@ -9,6 +9,16 @@
 import { Command } from 'commander';
 import { setupCommand } from './commands/setup.js';
 
+// Prevent unhandled rejections and uncaught exceptions from crashing the TUI.
+// All async paths inside ConversationRuntime now have .catch() handlers, but
+// this is the last-resort safety net for any rogue throw.
+process.on('unhandledRejection', (_reason) => {
+  // Swallow — the UI's error display handles it via pushEvent/addSystemMessage
+});
+process.on('uncaughtException', (_err) => {
+  // Swallow — same rationale; if it was fatal the process will exit naturally
+});
+
 const program = new Command();
 
 program
