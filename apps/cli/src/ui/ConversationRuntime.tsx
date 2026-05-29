@@ -11,7 +11,7 @@
  */
 
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { Box, Text, useApp } from 'ink';
+import { Box, Text, useApp, useInput } from 'ink';
 import Spinner from 'ink-spinner';
 import path from 'node:path';
 import fs from 'node:fs';
@@ -330,6 +330,11 @@ export function ConversationRuntime({
   workingDirectory,
 }: ConversationRuntimeProps): React.ReactElement {
   const { exit } = useApp();
+  // Keep raw mode enabled throughout the lifecycle of this component.
+  // Ink's useInput increments an internal rawModeEnabledCount, preventing other transient
+  // components (like overlays or command palettes) from disabling raw mode on unmount.
+  useInput(() => {});
+
   const [input, setInput] = useState('');
   const [promptBuffer, setPromptBuffer] = useState<PromptBufferState>(EMPTY_PROMPT_BUFFER);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -886,7 +891,7 @@ export function ConversationRuntime({
       )}
 
       {!showPalette && !activeOverlay && (
-        <Box flexDirection="row" flexGrow={1} marginTop={1}>
+        <Box flexGrow={1} marginTop={1}>
           <ConversationStream
             messages={messages}
             streamContent={streamContent}
@@ -898,7 +903,6 @@ export function ConversationRuntime({
             indexedFiles={indexedFiles}
             memoryCount={memorySummaries}
           />
-          <CognitiveStream events={events} mode={adaptiveMode} />
         </Box>
       )}
 
