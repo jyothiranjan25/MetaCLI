@@ -165,13 +165,17 @@ const ContinuationPrompt = React.memo(({
 
 const RetrievalBlock = React.memo(({ retrieval }: { retrieval: RetrievalVisibility }) => (
   <Box flexDirection="column" paddingLeft={2} marginTop={0}>
-    <Text color="gray">Retrieved:</Text>
-    {retrieval.items.slice(0, 5).map((item) => (
-      <Text key={item} color="gray">  • {item}</Text>
-    ))}
-    <Text color="gray">Why: <Text color="white">{retrieval.why}</Text></Text>
-    <Text color="gray">Confidence: <Text color="green">{retrieval.confidence}%</Text></Text>
-    <Text color="gray">Context: <Text color="green">{retrieval.tokensSaved.toLocaleString()} tokens saved</Text> using {retrieval.source}</Text>
+    <Box gap={1}>
+      <Text color="gray">◆ Context: </Text>
+      <Text color="green">{retrieval.tokensSaved.toLocaleString()} tokens saved</Text>
+      <Text color="gray">({retrieval.items.length} items optimized) via {retrieval.source}</Text>
+    </Box>
+    <Box gap={1}>
+      <Text color="gray">◆ Reason: </Text>
+      <Text color="white">{retrieval.why}</Text>
+      <Text color="gray"> • Confidence: </Text>
+      <Text color="green">{retrieval.confidence}%</Text>
+    </Box>
   </Box>
 ));
 
@@ -368,6 +372,7 @@ export function ConversationRuntime({
     const first = Array.from(initialProviders.entries()).find(([, v]) => v.authenticated);
     return first ? first[0] : '';
   });
+  const [providerLimits, setProviderLimits] = useState<Record<string, string>>({});
   const [healthScores] = useState<Record<string, number>>({ 'claude-code': 100, 'gemini-cli': 96 });
   const [cooldowns] = useState<Record<string, string>>({});
   const [indexedFiles, setIndexedFiles] = useState(0);
@@ -456,6 +461,35 @@ export function ConversationRuntime({
       pushEvent('Provider topology resolved', 'good');
     }).catch(() => pushEvent('Provider detection deferred', 'warn'));
   }, [orchestrator, pushEvent]);
+
+  useEffect(() => {
+    if (activeOverlay === 'providers') {
+      const nextLimits: Record<string, string> = {};
+      const run = async () => {
+        for (const id of Array.from(providers.keys())) {
+          const adapter = orchestrator.getRouter().getAdapter(id);
+          if (adapter) {
+            const rateLimit = await adapter.getRateLimitStatus();
+            const health = await adapter.checkHealth();
+            if (health.rateLimited || rateLimit.limited) {
+              const resetTime = rateLimit.resetAt ?? health.cooldownUntil;
+              const timeStr = resetTime
+                ? resetTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                : 'soon';
+              nextLimits[id] = `Locked (resets ${timeStr})`;
+            } else if (rateLimit.remainingRequests !== undefined) {
+              const total = id === 'claude-code' ? 50 : 1500;
+              nextLimits[id] = `${rateLimit.remainingRequests}/${total} remaining`;
+            } else {
+              nextLimits[id] = 'Unlimited';
+            }
+          }
+        }
+        setProviderLimits(nextLimits);
+      };
+      run().catch(() => {});
+    }
+  }, [activeOverlay, providers, orchestrator]);
 
   useEffect(() => {
     const unsubDetected = eventBus.on('provider:detected', (data) => {
@@ -632,7 +666,12 @@ export function ConversationRuntime({
         setStreamFallback(streamEvent.fallbackCount);
         finalProvider = streamEvent.provider;
         finalFallback = streamEvent.fallbackCount;
-        if (streamEvent.provider) pushEvent(`Provider routed → ${streamEvent.provider}`, 'good');
+        if (streamEvent.provider) {
+          pushEvent(`Provider routed → ${streamEvent.provider}`, 'good');
+          if (streamEvent.provider !== activeProvider) {
+            setActiveProvider(streamEvent.provider);
+          }
+        }
 
         const event = streamEvent.event;
         if (event.type === 'text') {
@@ -916,6 +955,7 @@ export function ConversationRuntime({
             providers,
             healthScores,
             cooldowns,
+            limits: providerLimits,
             workingDirectory,
             indexedFiles,
             memorySummaries,

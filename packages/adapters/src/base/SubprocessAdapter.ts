@@ -111,11 +111,12 @@ export abstract class SubprocessAdapter implements AIAdapter {
     }
 
     const auth = await this.checkAuth();
-    const healthy = auth.authenticated;
+    const rateLimit = await this.getRateLimitStatus();
+    const healthy = auth.authenticated && !rateLimit.limited;
 
     this.lastHealthCheck = {
       healthy,
-      rateLimited: false,
+      rateLimited: rateLimit.limited,
       score: healthy ? 100 : 0,
       lastChecked: new Date(),
     };

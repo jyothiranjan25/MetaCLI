@@ -29,6 +29,7 @@ export interface OverlayContext {
   providers: Map<string, { installed: boolean; authenticated: boolean }>;
   healthScores: Record<string, number>;
   cooldowns: Record<string, string>;
+  limits?: Record<string, string>;
   workingDirectory: string;
   indexedFiles: number;
   memorySummaries: number;
@@ -92,6 +93,7 @@ export function OverlayManager({ activeOverlay, context, onClose }: OverlayManag
             providers={context.providers}
             healthScores={context.healthScores}
             cooldowns={context.cooldowns}
+            limits={context.limits}
             activeProvider={context.activeProvider ?? ''}
             onSelectProvider={context.onSelectProvider}
           />

@@ -12,6 +12,7 @@ interface ProvidersOverlayProps {
   providers: Map<string, { installed: boolean; authenticated: boolean }>;
   healthScores?: Record<string, number>;
   cooldowns?: Record<string, string>;
+  limits?: Record<string, string>;
   activeProvider: string;
   onSelectProvider?: (providerId: string) => void;
 }
@@ -20,6 +21,7 @@ export function ProvidersOverlay({
   providers,
   healthScores = {},
   cooldowns = {},
+  limits = {},
   activeProvider,
   onSelectProvider,
 }: ProvidersOverlayProps): React.ReactElement {
@@ -72,10 +74,10 @@ export function ProvidersOverlay({
           <Text color="gray" bold dimColor>{'    Provider            '}</Text>
           <Text color="gray" bold dimColor>{'  Status      '}</Text>
           <Text color="gray" bold dimColor>{'  Auth        '}</Text>
+          <Text color="gray" bold dimColor>{'  Available Limit         '}</Text>
           <Text color="gray" bold dimColor>{'  Health  '}</Text>
-          <Text color="gray" bold dimColor>{'  Cooldown'}</Text>
         </Box>
-        <Text color="gray" dimColor>{'  ───────────────────────────────────────────────────────────'}</Text>
+        <Text color="gray" dimColor>{'  ──────────────────────────────────────────────────────────────────────────'}</Text>
 
         {providerList.length === 0 && (
           <Box paddingLeft={2} marginTop={1}>
@@ -89,10 +91,11 @@ export function ProvidersOverlay({
           const isSelected = idx === selectedIndex;
           const isActive = id === activeProvider;
           const score = healthScores[id] ?? 100;
-          const cooldown = cooldowns[id];
           const name = id.split('-').map((s) => s.charAt(0).toUpperCase() + s.slice(1)).join(' ');
           const healthColor = score >= 80 ? 'green' : score >= 50 ? 'yellow' : 'red';
           const scoreBar = '█'.repeat(Math.round(score / 20)) + '░'.repeat(5 - Math.round(score / 20));
+          const limitText = limits[id] ?? 'Unlimited';
+          const isLocked = limitText.includes('Locked');
 
           return (
             <Box key={id} gap={0}>
@@ -106,11 +109,11 @@ export function ProvidersOverlay({
               <Text color={info.authenticated ? 'green' : 'yellow'} width={14}>
                 {info.authenticated ? '  ✓ authed' : '  ⚠ login req'}
               </Text>
+              <Text color={isLocked ? 'red' : 'green'} width={26}>
+                {'  '}{limitText}
+              </Text>
               <Text color={healthColor} width={10}>
                 {'  '}{scoreBar}
-              </Text>
-              <Text color={cooldown ? 'red' : 'gray'}>
-                {'  '}{cooldown ?? '—'}
               </Text>
             </Box>
           );

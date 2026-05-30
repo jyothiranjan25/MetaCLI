@@ -41,6 +41,7 @@ export class GeminiAdapter extends SubprocessAdapter {
 
   private lastUsage: UsageEstimate = {};
   private rateLimitedUntil: Date | null = null;
+  private promptsSent = 0;
 
   // ─── Auth ─────────────────────────────────────────────────
 
@@ -148,6 +149,7 @@ export class GeminiAdapter extends SubprocessAdapter {
       }
 
       yield { type: 'done', usage: { inputTokens, outputTokens } };
+      this.promptsSent++;
     } catch {
       yield* this.fallbackSimulateStream(request.prompt);
     } finally {
@@ -166,9 +168,15 @@ export class GeminiAdapter extends SubprocessAdapter {
       return {
         limited: true,
         resetAt: this.rateLimitedUntil,
+        remainingRequests: 0,
       };
     }
-    return { limited: false };
+    const remaining = Math.max(0, 1500 - this.promptsSent);
+    return {
+      limited: remaining <= 0,
+      remainingRequests: remaining,
+      windowDuration: 86400,
+    };
   }
 
   // ─── Config ────────────────────────────────────────────────

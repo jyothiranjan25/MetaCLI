@@ -40,6 +40,7 @@ export class ClaudeAdapter extends SubprocessAdapter {
 
   private lastUsage: UsageEstimate = {};
   private rateLimitedUntil: Date | null = null;
+  private promptsSent = 0;
 
   // ─── Auth ─────────────────────────────────────────────────
 
@@ -144,7 +145,14 @@ export class ClaudeAdapter extends SubprocessAdapter {
         };
 
         if (parsed.is_error) {
-          yield { type: 'error', error: parsed.result ?? 'Claude returned an error' };
+          const errorMsg = parsed.result ?? 'Claude returned an error';
+          const isRateLimit = raw.includes('429') || raw.toLowerCase().includes('rate limit') || raw.toLowerCase().includes('session limit');
+          if (isRateLimit) {
+            this.rateLimitedUntil = new Date(Date.now() + 300_000); // 5 minute cooldown
+            yield { type: 'rate_limit' };
+          } else {
+            yield { type: 'error', error: errorMsg };
+          }
           return;
         }
 
@@ -166,6 +174,7 @@ export class ClaudeAdapter extends SubprocessAdapter {
       }
 
       yield usage;
+      this.promptsSent++;
     } catch (error) {
       yield* this.fallbackSimulateStream(request.prompt);
     } finally {
@@ -184,10 +193,16 @@ export class ClaudeAdapter extends SubprocessAdapter {
       return {
         limited: true,
         resetAt: this.rateLimitedUntil,
+        remainingRequests: 0,
       };
     }
 
-    return { limited: false };
+    const remaining = Math.max(0, 50 - this.promptsSent);
+    return {
+      limited: remaining <= 0,
+      remainingRequests: remaining,
+      windowDuration: 18000,
+    };
   }
 
   // ─── Config ────────────────────────────────────────────────
