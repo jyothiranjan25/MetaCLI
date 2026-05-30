@@ -1,9 +1,15 @@
 /**
  * MetaCLI Adapters — OpenCode CLI Adapter
  *
- * Orchestrates OpenCode CLI as a subprocess with simulated fallback layers.
+ * Orchestrates OpenCode CLI as a subprocess.
+ *
+ * Key behaviors:
+ * - Uses `opencode run --format json` for structured streaming output
+ * - Auth: configured via `opencode providers` (supports Anthropic, OpenAI, etc.)
+ * - Stream protocol: newline-delimited JSON events on stdout
  */
 
+import { execa } from 'execa';
 import type {
   AdapterCapabilities,
   AuthStatus,
@@ -19,7 +25,7 @@ export class OpenCodeAdapter extends SubprocessAdapter {
   readonly displayName = 'OpenCode CLI';
   readonly capabilities: AdapterCapabilities = {
     supportsStreaming: true,
-    supportsJsonOutput: false,
+    supportsJsonOutput: true,
     supportsNonInteractive: true,
     supportsFileContext: false,
     requiresPty: false,
@@ -35,8 +41,79 @@ export class OpenCodeAdapter extends SubprocessAdapter {
   }
 
   async *sendPrompt(request: PromptRequest): AsyncGenerator<StreamEvent, void, undefined> {
-    // OpenCode always falls back to a highly realistic, responsive simulated response when run locally!
-    yield* this.fallbackSimulateStream(request.prompt);
+    try {
+      const detection = await this.detect();
+      if (!detection.installed || !detection.binaryPath) {
+        yield* this.fallbackSimulateStream(request.prompt);
+        return;
+      }
+
+      const proc = await execa(
+        detection.binaryPath,
+        ['run', '--format', 'json', request.prompt],
+        {
+          cwd: request.workingDirectory,
+          timeout: request.timeout ?? 300_000,
+          env: { ...process.env, NO_COLOR: '1' },
+          stdin: 'ignore',
+          reject: false,
+        },
+      );
+
+      const raw = String(proc.stdout ?? '').trim();
+      if (!raw) {
+        const err = String(proc.stderr ?? '').toLowerCase();
+        if (err.includes('rate limit') || err.includes('429') || err.includes('quota')) {
+          yield { type: 'rate_limit' };
+          return;
+        }
+        yield { type: 'error', error: String(proc.stderr || 'Empty response from opencode') };
+        return;
+      }
+
+      let inputTokens: number | undefined;
+      let outputTokens: number | undefined;
+      let hasOutput = false;
+
+      for (const line of raw.split('\n')) {
+        const trimmed = line.trim();
+        if (!trimmed) continue;
+        try {
+          const event = JSON.parse(trimmed) as {
+            type: string;
+            part?: {
+              type?: string;
+              text?: string;
+              tokens?: { input?: number; output?: number };
+            };
+          };
+
+          if (event.type === 'text' && event.part?.type === 'text' && event.part.text) {
+            hasOutput = true;
+            for (const chunk of event.part.text.split(/(\s+)/)) {
+              if (chunk) yield { type: 'text', content: chunk };
+            }
+          } else if (event.type === 'step_finish' && event.part?.tokens) {
+            inputTokens = event.part.tokens.input;
+            outputTokens = event.part.tokens.output;
+          }
+        } catch {
+          // Non-JSON line — skip (opencode may emit some plain-text lines)
+        }
+      }
+
+      if (!hasOutput) {
+        yield { type: 'error', error: 'No text output from opencode' };
+        return;
+      }
+
+      this.lastUsage = { inputTokens, outputTokens };
+      yield { type: 'done', usage: { inputTokens, outputTokens } };
+    } catch (error) {
+      yield* this.fallbackSimulateStream(request.prompt);
+    } finally {
+      this.currentProcess = null;
+    }
   }
 
   async getUsageEstimate(): Promise<UsageEstimate> {
@@ -51,63 +128,12 @@ export class OpenCodeAdapter extends SubprocessAdapter {
     return '';
   }
 
-  private async *fallbackSimulateStream(prompt: string): AsyncGenerator<StreamEvent, void, undefined> {
-    const p = prompt.toLowerCase();
-    let response = "";
-
-    if (p.includes('hello') || p.includes('hi')) {
-      response = "Hello! I am OpenCode, an AI-native open model interpreter inside MetaCLI. How can I assist you with your project structuring or code logic today?";
-    } else if (p.includes('auth') || p.includes('jwt')) {
-      response = `Here is a lightweight JWT Token validation service in TypeScript:
-
-\`\`\`typescript
-import { Request, Response, NextFunction } from 'express';
-import jwt from 'jsonwebtoken';
-
-export interface AuthenticatedRequest extends Request {
-  user?: any;
-}
-
-export const authenticateJWT = (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
-  const authHeader = req.headers.authorization;
-
-  if (authHeader) {
-    const token = authHeader.split(' ')[1];
-    jwt.verify(token, process.env.JWT_SECRET || 'secret-key', (err, user) => {
-      if (err) return res.sendStatus(403);
-      req.user = user;
-      next();
-    });
-  } else {
-    res.sendStatus(401);
-  }
-};
-\`\`\`
-
-Let me know if you would like me to draft corresponding validation helper middlewares!`;
-    } else {
-      response = `I've analyzed your workspace context. Based on your prompt ("${prompt}"), here is the recommended approach:
-
-1. **Scan Workspace**: Ensure structural indexes are warm by running \`/reindex\`.
-2. **Examine dependencies**: Check loose modular couplings or circular imports.
-3. **Execute workflows**: Safely execute plan steps with automated checkpoints.
-
-Let me know if you would like me to draft a specific code implementation or refactor workflow step!`;
-    }
-
-    const chunks = response.split(/(\s+)/);
-    for (const chunk of chunks) {
+  private async *fallbackSimulateStream(_prompt: string): AsyncGenerator<StreamEvent, void, undefined> {
+    const response = `I'm OpenCode, but couldn't connect to the CLI. Run \`opencode providers\` to configure a provider, then retry.`;
+    for (const chunk of response.split(/(\s+)/)) {
       yield { type: 'text', content: chunk };
-      await new Promise((resolve) => setTimeout(resolve, 35));
+      await new Promise((resolve) => setTimeout(resolve, 20));
     }
-
-    yield {
-      type: 'done',
-      usage: {
-        inputTokens: 110,
-        outputTokens: Math.round(response.length / 4),
-        totalTokens: 110 + Math.round(response.length / 4),
-      },
-    };
+    yield { type: 'done' };
   }
 }
