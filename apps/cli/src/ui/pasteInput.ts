@@ -101,10 +101,13 @@ function parseNonPasteInput(input: string): TerminalInputEvent[] {
         events.push({ type: 'up' });
       } else if (seq === '\x1b[B') {
         events.push({ type: 'down' });
-      } else {
-        // Unknown / unrecognised sequence — emit a single escape event and skip.
+      } else if (seq === '\x1b') {
+        // Bare ESC key (no following sequence) — intentional dismiss.
         events.push({ type: 'escape' });
       }
+      // All other multi-char sequences (left/right arrow, Home, End, F-keys,
+      // etc.) are silently consumed. Treating them as 'escape' was closing
+      // overlays whenever the user pressed an unrecognised key.
       index += seq.length;
       continue;
     }

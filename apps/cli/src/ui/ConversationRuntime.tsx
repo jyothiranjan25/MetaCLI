@@ -348,8 +348,8 @@ export function ConversationRuntime({
   const [streamProvider, setStreamProvider] = useState('');
   const [streamFallback, setStreamFallback] = useState(0);
   const [activeRetrieval, setActiveRetrieval] = useState<RetrievalVisibility | undefined>();
-  const [activeOverlay, setActiveOverlay] = useState<OverlayId>(null);
-  const [showPalette, setShowPalette] = useState(false);
+  const [activeOverlay, _setActiveOverlay] = useState<OverlayId>(null);
+  const [showPalette, _setShowPalette] = useState(false);
   const [suggestions, setSuggestions] = useState<CommandSuggestion[]>([]);
   const [selectedSuggestionIndex, setSelectedSuggestionIndex] = useState(0);
   const [providers, setProviders] = useState<Map<string, { installed: boolean; authenticated: boolean }>>(new Map());
@@ -368,6 +368,19 @@ export function ConversationRuntime({
   const selectedSuggestionIndexRef = useRef(0);
   const showPaletteRef = useRef(false);
   const activeOverlayRef = useRef<OverlayId>(null);
+
+  // Wrappers that keep refs and state in sync atomically — the ref update is
+  // synchronous so handleTerminalEvent always reads the correct value even
+  // before the next React render commits the state change.
+  const setActiveOverlay = useCallback((id: OverlayId) => {
+    activeOverlayRef.current = id;
+    _setActiveOverlay(id);
+  }, []);
+  const setShowPalette = useCallback((val: boolean | ((prev: boolean) => boolean)) => {
+    const next = typeof val === 'function' ? val(showPaletteRef.current) : val;
+    showPaletteRef.current = next;
+    _setShowPalette(next);
+  }, []);
   const showContinuationRef = useRef(true);
   const messagesRef = useRef<Message[]>([]);
   const isProcessingRef = useRef(false);
@@ -395,8 +408,8 @@ export function ConversationRuntime({
   useEffect(() => { inputRef.current = input; }, [input]);
   useEffect(() => { suggestionsRef.current = suggestions; }, [suggestions]);
   useEffect(() => { selectedSuggestionIndexRef.current = selectedSuggestionIndex; }, [selectedSuggestionIndex]);
-  useEffect(() => { showPaletteRef.current = showPalette; }, [showPalette]);
-  useEffect(() => { activeOverlayRef.current = activeOverlay; }, [activeOverlay]);
+  // showPaletteRef and activeOverlayRef are kept in sync by their wrapper
+  // setters above — no useEffect needed here.
   useEffect(() => { showContinuationRef.current = showContinuation; }, [showContinuation]);
   useEffect(() => { messagesRef.current = messages; }, [messages]);
   useEffect(() => { isProcessingRef.current = isProcessing; }, [isProcessing]);
