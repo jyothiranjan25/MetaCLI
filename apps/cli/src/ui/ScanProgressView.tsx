@@ -108,7 +108,10 @@ export function ScanProgressView({
           </Box>
           {currentFile && (
             <Box marginTop={1}>
-              <Text color="gray" dimColor>{currentFile}</Text>
+              <Text color="gray" dimColor>
+                {/* Show last 3 segments so it fits in any terminal width */}
+                {currentFile.split('/').slice(-3).join('/')}
+              </Text>
             </Box>
           )}
         </Box>

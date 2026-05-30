@@ -171,9 +171,14 @@ export function AskView({
           <Text color="cyan">
             <Spinner type="dots" />
           </Text>
-          <Text> Routing prompt...</Text>
+          <Text>
+            {provider
+              ? ` Generating response via ${provider}...`
+              : ' Routing prompt...'}
+          </Text>
         </Box>
       )}
+
 
       {/* Streaming / Complete output */}
       {(state === 'streaming' || state === 'complete') && output && (

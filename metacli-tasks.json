@@ -1,0 +1,17 @@
+[
+  {
+    "id": "task-1",
+    "name": "Verify Git workspace status",
+    "type": "command",
+    "command": "git status"
+  },
+  {
+    "id": "task-2",
+    "name": "Run project tests",
+    "type": "command",
+    "command": "npm test",
+    "dependencies": [
+      "task-1"
+    ]
+  }
+]

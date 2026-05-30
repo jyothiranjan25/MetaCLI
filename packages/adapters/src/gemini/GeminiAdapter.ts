@@ -97,10 +97,13 @@ export class GeminiAdapter extends SubprocessAdapter {
       }
 
       // Gemini: -p/--prompt takes the prompt as its value (not a positional arg like Claude)
-      const proc = await execa(detection.binaryPath, ['--prompt', request.prompt, '--output-format', 'json'], {
+      // stdin: 'ignore' prevents gemini from waiting for stdin input.
+      // Note: gemini uses -p not --output-format; that flag is unsupported by gemini CLI.
+      const proc = await execa(detection.binaryPath, ['-p', request.prompt], {
         cwd: request.workingDirectory,
         timeout: request.timeout ?? 300_000,
         env: { ...process.env, NO_COLOR: '1' },
+        stdin: 'ignore',
         reject: false,
       });
 

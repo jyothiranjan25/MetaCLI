@@ -84,6 +84,15 @@ program
   });
 
 program
+  .command('test-harness')
+  .description('Run autonomous user simulation and acceptance e2e testing harness')
+  .option('-d, --dir <directory>', 'Working directory', process.cwd())
+  .action(async (options) => {
+    const { testHarnessCommand } = await import('./commands/test-harness.js');
+    await testHarnessCommand(options);
+  });
+
+program
   .command('audit')
   .description('View relational security and process execution audit logs')
   .option('-d, --dir <directory>', 'Working directory', process.cwd())

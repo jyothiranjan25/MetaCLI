@@ -60,6 +60,7 @@ export class ClaudeAdapter extends SubprocessAdapter {
       const proc = await execa(binaryPath, ['auth', 'status'], {
         timeout: 5_000,
         reject: false,
+        stdin: 'ignore',  // Don't wait for stdin — claude hangs 3s otherwise
         env: { ...process.env, NO_COLOR: '1' },
       });
 
@@ -106,10 +107,12 @@ export class ClaudeAdapter extends SubprocessAdapter {
 
       // Use execa directly (buffered) because spawn() sets buffer:false for streaming.
       // --output-format json gives a single clean JSON result — no stream-json/--verbose noise.
+      // stdin: 'ignore' is CRITICAL — claude waits 3s for stdin before proceeding without it.
       const proc = await execa(detection.binaryPath, args, {
         cwd: request.workingDirectory,
         timeout: request.timeout ?? 300_000,
         env: { ...process.env, NO_COLOR: '1' },
+        stdin: 'ignore',
         reject: false,
       });
 
