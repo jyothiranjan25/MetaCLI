@@ -39,6 +39,13 @@ export {
   type ProviderHealth,
 } from './orchestrator/ProviderRouter.js';
 export { FallbackEngine, type FallbackOptions } from './orchestrator/FallbackEngine.js';
+export type { ProviderTransport, TransportMode } from './orchestrator/transports/ProviderTransport.js';
+export { ProviderSession } from './orchestrator/runtime/ProviderSession.js';
+export { ProviderPool } from './orchestrator/runtime/ProviderPool.js';
+export { ProviderRuntimeManager } from './orchestrator/runtime/ProviderRuntimeManager.js';
+export { SessionRouter } from './orchestrator/runtime/SessionRouter.js';
+export { SessionPersistenceEngine } from './orchestrator/runtime/SessionPersistenceEngine.js';
+export { TokenAccountingEngine } from './orchestrator/runtime/TokenAccountingEngine.js';
 
 // Config
 export { ConfigLoader, ConfigValidationError } from './config/ConfigLoader.js';

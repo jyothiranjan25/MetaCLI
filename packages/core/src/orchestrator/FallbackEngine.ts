@@ -11,6 +11,8 @@ import type { PromptRequest, StreamEvent, FallbackRecord } from '../events/types
 import { ProviderRouter } from './ProviderRouter.js';
 import { EventBus } from '../events/EventBus.js';
 import type { MetaCLIEvents } from '../events/events.js';
+import { ProviderRuntimeManager } from './runtime/ProviderRuntimeManager.js';
+import { ProviderSession } from './runtime/ProviderSession.js';
 
 export interface FallbackOptions {
   maxFallbacks: number;
@@ -21,6 +23,7 @@ export class FallbackEngine {
   constructor(
     private router: ProviderRouter,
     private eventBus: EventBus<MetaCLIEvents>,
+    private runtimeManager?: ProviderRuntimeManager,
   ) {}
 
   /**
@@ -67,7 +70,11 @@ export class FallbackEngine {
         let hasOutput = false;
         let rateLimited = false;
 
-        for await (const event of adapter.sendPrompt(request)) {
+        const streamSource = this.runtimeManager
+          ? await this.runtimeManager.acquireSession(adapter.id)
+          : adapter;
+
+        for await (const event of streamSource.sendPrompt(request)) {
           // Check for rate limit events
           if (event.type === 'rate_limit') {
             rateLimited = true;
@@ -138,6 +145,28 @@ export class FallbackEngine {
           yield { ...event, provider: adapter.id, fallbacks };
 
           if (event.type === 'done') {
+            // Record token usage if persistent session
+            if (this.runtimeManager && streamSource instanceof ProviderSession) {
+              const inputTokens = Math.ceil((request.prompt.length + (request.systemPrompt?.length ?? 0)) / 4);
+              const outputTokens = streamSource.getTokenCount();
+              this.runtimeManager.recordTokenUsage(
+                adapter.id,
+                streamSource.id,
+                request.workingDirectory,
+                promptId,
+                inputTokens,
+                outputTokens
+              );
+              this.runtimeManager.recordPrompt(
+                streamSource.id,
+                request.prompt,
+                request.systemPrompt,
+                request.files,
+                request.workingDirectory
+              );
+              this.runtimeManager.releaseSession(streamSource);
+            }
+
             // Success — record good outcome
             this.router.recordOutcome(adapter.id, {
               success: true,
@@ -150,6 +179,28 @@ export class FallbackEngine {
 
         // If we got here without hitting rate_limit/error, the stream ended normally
         if (hasOutput && !rateLimited) {
+          // Record token usage if persistent session
+          if (this.runtimeManager && streamSource instanceof ProviderSession) {
+            const inputTokens = Math.ceil((request.prompt.length + (request.systemPrompt?.length ?? 0)) / 4);
+            const outputTokens = streamSource.getTokenCount();
+            this.runtimeManager.recordTokenUsage(
+              adapter.id,
+              streamSource.id,
+              request.workingDirectory,
+              promptId,
+              inputTokens,
+              outputTokens
+            );
+            this.runtimeManager.recordPrompt(
+              streamSource.id,
+              request.prompt,
+              request.systemPrompt,
+              request.files,
+              request.workingDirectory
+            );
+            this.runtimeManager.releaseSession(streamSource);
+          }
+
           this.router.recordOutcome(adapter.id, {
             success: true,
             rateLimited: false,

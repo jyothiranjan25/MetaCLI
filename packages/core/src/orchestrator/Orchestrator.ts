@@ -7,7 +7,6 @@
 
 import { randomUUID } from 'node:crypto';
 import type { AIAdapter } from './adapter-types.js';
-import { ProviderRouter } from './ProviderRouter.js';
 import { FallbackEngine } from './FallbackEngine.js';
 import { EventBus } from '../events/EventBus.js';
 import type { MetaCLIEvents } from '../events/events.js';
@@ -40,11 +39,15 @@ import { MemoryReinforcementEngine } from '../cognitive/memory/MemoryReinforceme
 import { AdaptiveEngineeringPersona } from '../cognitive/personas/AdaptiveEngineeringPersona.js';
 import { CognitiveTimelineRuntime } from '../cognitive/timeline/CognitiveTimelineRuntime.js';
 
+import { ProviderRuntimeManager } from './runtime/ProviderRuntimeManager.js';
+import { SessionRouter } from './runtime/SessionRouter.js';
+
 export class Orchestrator {
-  private router: ProviderRouter;
+  private router: SessionRouter;
   private fallbackEngine: FallbackEngine;
   private eventBus: EventBus<MetaCLIEvents>;
   private currentPromptId: string | null = null;
+  private runtimeManager: ProviderRuntimeManager;
 
   // New Cognitive Engine Instances
   private budgetEngine: ContextBudgetEngine;
@@ -72,8 +75,9 @@ export class Orchestrator {
     eventBus?: EventBus<MetaCLIEvents>,
   ) {
     this.eventBus = eventBus ?? new EventBus<MetaCLIEvents>();
-    this.router = new ProviderRouter(this.config.routing, this.eventBus);
-    this.fallbackEngine = new FallbackEngine(this.router, this.eventBus);
+    this.runtimeManager = new ProviderRuntimeManager(this.eventBus);
+    this.router = new SessionRouter(this.config.routing, this.eventBus, this.runtimeManager.getPool());
+    this.fallbackEngine = new FallbackEngine(this.router, this.eventBus, this.runtimeManager);
 
     // Instantiate Cognitive Subsystems
     this.budgetEngine = new ContextBudgetEngine(this.eventBus);
@@ -107,8 +111,15 @@ export class Orchestrator {
   /**
    * Get the provider router for health/status queries.
    */
-  getRouter(): ProviderRouter {
+  getRouter(): SessionRouter {
     return this.router;
+  }
+
+  /**
+   * Get the provider runtime manager.
+   */
+  getRuntimeManager(): ProviderRuntimeManager {
+    return this.runtimeManager;
   }
 
   /**
@@ -368,6 +379,33 @@ The user is asking "what you can do?". You are the actual underlying CLI tool ($
       for (const fileItem of allocated.items) {
         this.diffEngine.analyzeSemanticChanges(fileItem.path, fileItem.content, `${fileItem.content}\n// verified`);
         this.memoryReinforce.reinforceMemory(fileItem.path, 0.8, 10, 1);
+      }
+
+      // Save prompt-response to cognitive brain memory
+      try {
+        const fs = await import('node:fs');
+        const path = await import('node:path');
+        const dbPath = path.join(options.workingDirectory ?? process.cwd(), '.metacli', 'brain.db');
+        if (fs.existsSync(dbPath)) {
+          const { BrainStore } = await import('@metacli/brain');
+          const store = new BrainStore(options.workingDirectory ?? process.cwd());
+          try {
+            store.saveMemory({
+              id: `mem-${promptId}`,
+              layer: 'hot',
+              content: `User prompt: "${prompt}". Assistant response: "${fullContent.slice(0, 500)}..."`,
+              summary: `Interaction ${promptId}`,
+            });
+            this.eventBus.emit('brain:memory_updated', {
+              tier: 'hot',
+              entriesChanged: 1,
+            }).catch(() => {});
+          } finally {
+            store.close();
+          }
+        }
+      } catch {
+        // Safe check fallback
       }
 
       // Restore central heartbeat loop to OBSERVING

@@ -31,7 +31,9 @@ export function ScanProgressView({
   const runScan = useCallback(async () => {
     setScanState('scanning');
     try {
-      const result = await scanner.scan({
+      const { ColdStartPreprocessor } = await import('@metacli/brain');
+      const preprocessor = new ColdStartPreprocessor((scanner as any).projectRoot, store, eventBus);
+      const result = await preprocessor.prepare({
         forceRescan: force,
       });
       setFileCount(result.filesScanned);
@@ -46,7 +48,7 @@ export function ScanProgressView({
     setTimeout(() => {
       exit();
     }, 150);
-  }, [scanner, force, exit]);
+  }, [scanner, store, eventBus, force, exit]);
 
   // Subscribe to real-time scanning events
   useEffect(() => {

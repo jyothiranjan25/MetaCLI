@@ -284,6 +284,7 @@ const CommandLayer = React.memo(({
   showSuggestions,
   selectedSuggestionIndex,
   isProcessing,
+  isPaused,
 }: {
   value: string;
   promptBuffer: PromptBufferState;
@@ -291,6 +292,7 @@ const CommandLayer = React.memo(({
   showSuggestions: boolean;
   selectedSuggestionIndex: number;
   isProcessing: boolean;
+  isPaused: boolean;
 }) => (
   <Box flexDirection="column" paddingX={1} marginTop={1}>
     {showSuggestions && suggestions.length > 0 && (
@@ -307,8 +309,10 @@ const CommandLayer = React.memo(({
       <Text color={value.startsWith('/') ? 'cyan' : 'gray'}>{value.startsWith('/') ? '/' : '›'}</Text>
       {isProcessing ? (
         <Box gap={1}>
-          <Text color="green"><Spinner type="dots" /></Text>
-          <Text color="gray">MetaCLI is thinking</Text>
+          <Text color={isPaused ? 'yellow' : 'green'}><Spinner type="dots" /></Text>
+          <Text color={isPaused ? 'yellow' : 'gray'}>
+            {isPaused ? 'MetaCLI is paused (press p to resume)' : 'MetaCLI is thinking (press c to cancel, p to pause, s to switch)'}
+          </Text>
         </Box>
       ) : (
         <>
@@ -333,10 +337,20 @@ const CommandLayer = React.memo(({
       )}
     </Box>
     <Box gap={2}>
-      <Text color="gray" dimColor>Enter send</Text>
-      <Text color="gray" dimColor>Ctrl+K palette</Text>
-      <Text color="gray" dimColor>ESC close</Text>
-      <Text color="gray" dimColor>Ctrl+C exit</Text>
+      {isProcessing ? (
+        <>
+          <Text color="yellow" bold>c cancel</Text>
+          <Text color="cyan" bold>p pause/resume</Text>
+          <Text color="magenta" bold>s switch provider</Text>
+        </>
+      ) : (
+        <>
+          <Text color="gray" dimColor>Enter send</Text>
+          <Text color="gray" dimColor>Ctrl+K palette</Text>
+          <Text color="gray" dimColor>ESC close</Text>
+          <Text color="gray" dimColor>Ctrl+C exit</Text>
+        </>
+      )}
     </Box>
   </Box>
 ));
@@ -367,6 +381,10 @@ export function ConversationRuntime({
     { id: 'boot-3', label: 'Awaiting workspace pulse', tone: 'muted', timestamp: new Date() },
   ]);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [isPaused, setIsPaused] = useState(false);
+  const isPausedRef = useRef(false);
+  useEffect(() => { isPausedRef.current = isPaused; }, [isPaused]);
+
   const [streamContent, setStreamContent] = useState('');
   const [streamProvider, setStreamProvider] = useState('');
   const [streamFallback, setStreamFallback] = useState(0);
@@ -388,6 +406,23 @@ export function ConversationRuntime({
   const [cooldowns] = useState<Record<string, string>>({});
   const [indexedFiles, setIndexedFiles] = useState(0);
   const [memorySummaries, setMemorySummaries] = useState(0);
+  const refreshMemoryCount = useCallback(() => {
+    const dbPath = path.join(workingDirectory, '.metacli', 'brain.db');
+    if (!fs.existsSync(dbPath)) return;
+    import('@metacli/brain').then(({ BrainStore }) => {
+      const store = new BrainStore(workingDirectory);
+      try {
+        const files = store.getAllFiles();
+        setIndexedFiles(files.length);
+        const hot = store.getMemoriesByLayer('hot').length;
+        const warm = store.getMemoriesByLayer('warm').length;
+        const cold = store.getMemoriesByLayer('cold').length;
+        setMemorySummaries(hot + warm + cold);
+      } finally {
+        store.close();
+      }
+    }).catch(() => {});
+  }, [workingDirectory]);
   const [showContinuation, setShowContinuation] = useState(true);
   const slashRuntime = useRef(new SlashCommandRuntime());
   const promptBufferRef = useRef<PromptBufferState>(EMPTY_PROMPT_BUFFER);
@@ -420,7 +455,7 @@ export function ConversationRuntime({
   // Without these, every activeProvider change regenerates submitPrompt →
   // handleTerminalEvent → triggers Effect 2 cleanup (removes onData listener)
   // → brief window with no listener → Ink's raw stdin handling takes over alone.
-  const submitPromptRef = useRef<() => Promise<void>>(() => Promise.resolve());
+  const submitPromptRef = useRef<(retryPrompt?: string) => Promise<void>>(() => Promise.resolve());
   const executeSlashCommandRef = useRef<(raw: string) => Promise<void>>(() => Promise.resolve());
 
   const setPromptText = useCallback((text: string) => {
@@ -448,6 +483,18 @@ export function ConversationRuntime({
 
   const pushEvent = useCallback((label: string, tone: CognitiveEvent['tone'] = 'normal') => {
     setEvents((prev) => [{ id: `${Date.now()}-${label}`, label, tone, timestamp: new Date() }, ...prev].slice(0, 32));
+  }, []);
+
+  const addSystemMessage = useCallback((content: string) => {
+    setMessages((prev) => [
+      ...prev,
+      {
+        id: `sys-${Date.now()}`,
+        role: 'system',
+        content,
+        timestamp: new Date(),
+      },
+    ]);
   }, []);
 
   const pulse: Pulse = useMemo(() => {
@@ -533,33 +580,42 @@ export function ConversationRuntime({
     });
     const unsubMemory = eventBus.on('brain:memory_updated', (data) => {
       pushEvent(`Memory reinforced (${data.entriesChanged})`, 'good');
+      refreshMemoryCount();
+    });
+    const unsubCompaction = eventBus.on('brain:compaction', (data) => {
+      pushEvent(`Memory compacted (${data.before} → ${data.after})`, 'good');
+      refreshMemoryCount();
     });
     const unsubScan = eventBus.on('brain:scan_complete', (data) => {
       setIndexedFiles(data.fileCount);
       pushEvent(`Dependency graph updated (${data.fileCount} files)`, 'good');
+      refreshMemoryCount();
     });
-    return () => { unsubDetected(); unsubAuth(); unsubRetrieval(); unsubMemory(); unsubScan(); };
-  }, [eventBus, pushEvent]);
+    return () => {
+      unsubDetected();
+      unsubAuth();
+      unsubRetrieval();
+      unsubMemory();
+      unsubCompaction();
+      unsubScan();
+    };
+  }, [eventBus, pushEvent, refreshMemoryCount]);
 
   useEffect(() => {
+    refreshMemoryCount();
     const dbPath = path.join(workingDirectory, '.metacli', 'brain.db');
-    if (!fs.existsSync(dbPath)) return;
-    import('@metacli/brain').then(({ BrainStore }) => {
-      const store = new BrainStore(workingDirectory);
-      try {
-        const files = store.getAllFiles();
-        setIndexedFiles(files.length);
-        setMemorySummaries(
-          store.getMemoriesByLayer('hot').length +
-          store.getMemoriesByLayer('warm').length +
-          store.getMemoriesByLayer('cold').length,
-        );
-        pushEvent(`Architecture snapshot loaded (${files.length} files)`, 'good');
-      } finally {
-        store.close();
-      }
-    }).catch(() => pushEvent('Brain database unavailable', 'warn'));
-  }, [workingDirectory, pushEvent]);
+    if (fs.existsSync(dbPath)) {
+      import('@metacli/brain').then(({ BrainStore }) => {
+        const store = new BrainStore(workingDirectory);
+        try {
+          const files = store.getAllFiles();
+          pushEvent(`Architecture snapshot loaded (${files.length} files)`, 'good');
+        } finally {
+          store.close();
+        }
+      }).catch(() => pushEvent('Brain database unavailable', 'warn'));
+    }
+  }, [workingDirectory, pushEvent, refreshMemoryCount]);
 
   useEffect(() => {
     const currentInput = activePromptText();
@@ -571,10 +627,6 @@ export function ConversationRuntime({
       setSelectedSuggestionIndex(0);
     }
   }, [activePromptText, input, promptBuffer]);
-
-  const addSystemMessage = useCallback((content: string) => {
-    setMessages((prev) => [...prev, { id: `sys-${Date.now()}`, role: 'system', content, timestamp: new Date() }]);
-  }, []);
 
   const executeSlashCommand = useCallback(async (raw: string) => {
     const parsed = slashRuntime.current.parse(raw);
@@ -599,11 +651,49 @@ export function ConversationRuntime({
         pushEvent(`Provider switched → ${providerId ?? 'auto'}`, 'good');
       } else if (result.action === 'trace-retrieval') {
         addSystemMessage(activeRetrieval ? `Last retrieval: ${activeRetrieval.items.join(', ')}. Why: ${activeRetrieval.why}.` : 'No retrieval trace is active yet.');
+      } else if (result.action === 'compact') {
+        const dbPath = path.join(workingDirectory, '.metacli', 'brain.db');
+        if (fs.existsSync(dbPath)) {
+          try {
+            const { BrainStore, SessionCompactor } = await import('@metacli/brain');
+            const store = new BrainStore(workingDirectory);
+            try {
+              const compactor = new SessionCompactor(store);
+              const hotMemories = store.getMemoriesByLayer('hot');
+              if (hotMemories.length <= 5) {
+                const textBlock = hotMemories.map((h: any) => h.content).join('; ');
+                store.clearMemoriesByLayer('hot');
+                store.saveMemory({
+                  id: `summary-${Date.now()}`,
+                  layer: 'warm',
+                  content: `Consolidated session summary: ${textBlock.slice(0, 200) || 'Active workspace session started'}...`,
+                  summary: 'Compacted hot memory sequence',
+                });
+              } else {
+                await compactor.compact('active-session');
+              }
+              
+              const hotCount = store.getMemoriesByLayer('hot').length;
+              const warmCount = store.getMemoriesByLayer('warm').length;
+              const coldCount = store.getMemoriesByLayer('cold').length;
+              setMemorySummaries(hotCount + warmCount + coldCount);
+              
+              addSystemMessage('Memory compaction complete! Session history has been consolidated into warm SQLite memory slots.');
+              pushEvent('Memory compacted and layers refined', 'good');
+            } finally {
+              store.close();
+            }
+          } catch (err: any) {
+            addSystemMessage(`Compaction failed: ${err.message}`);
+          }
+        } else {
+          addSystemMessage('Compaction skipped: Project brain database is not indexed. Run metacli scan first.');
+        }
       } else {
         addSystemMessage(`Executed ${result.action}.`);
       }
     }
-  }, [activeRetrieval, addSystemMessage, pushEvent]);
+  }, [activeRetrieval, addSystemMessage, pushEvent, workingDirectory]);
 
   const buildRetrievalVisibility = useCallback(async (prompt: string): Promise<RetrievalVisibility> => {
     const fallback = {
@@ -641,12 +731,51 @@ export function ConversationRuntime({
     }
   }, [indexedFiles, workingDirectory]);
 
-  const submitPrompt = useCallback(async () => {
+  const togglePause = useCallback(async () => {
+    const pool = orchestrator.getRuntimeManager().getPool();
+    const activeSessions = pool.getActiveSessions();
+    if (activeSessions.length > 0) {
+      const session = activeSessions[0];
+      const transport = pool.getTransport(session.id);
+      if (transport) {
+        if (isPausedRef.current) {
+          if (transport.resume) await transport.resume();
+          setIsPaused(false);
+          pushEvent('Prompt execution resumed', 'good');
+        } else {
+          if (transport.pause) await transport.pause();
+          setIsPaused(true);
+          pushEvent('Prompt execution paused', 'warn');
+        }
+      }
+    }
+  }, [orchestrator, pushEvent]);
+
+  const triggerMidStreamSwitch = useCallback(async () => {
+    const userMsgs = messagesRef.current.filter((m) => m.role === 'user');
+    const lastPrompt = userMsgs.length > 0 ? userMsgs[userMsgs.length - 1].content : '';
+    if (!lastPrompt) return;
+
+    pushEvent('Switching provider mid-stream...', 'warn');
+    await orchestrator.abort();
+
+    const nextProvider = activeProvider === 'claude-code' ? 'gemini-cli' : 'claude-code';
+    setActiveProvider(nextProvider);
+    pushEvent(`Switched to warm ${nextProvider} session`, 'good');
+
+    setTimeout(() => {
+      submitPrompt(lastPrompt).catch((err) =>
+        pushEvent(`Mid-stream switch execution error: ${err instanceof Error ? err.message : String(err)}`, 'warn')
+      );
+    }, 100);
+  }, [orchestrator, activeProvider, pushEvent]);
+
+  const submitPrompt = useCallback(async (retryPrompt?: string) => {
     // Outer try-catch: executeSlashCommand at line ~560 was outside the inner
     // try-catch, so any throw from it became an unhandled rejection → process crash.
     try {
-    const userInput = activePromptText().trim();
-    if (!userInput || isProcessing) return;
+    const userInput = retryPrompt !== undefined ? retryPrompt : activePromptText().trim();
+    if (!userInput || (isProcessing && retryPrompt === undefined)) return;
     setPromptText('');
     setSuggestions([]);
     setShowContinuation(false);
@@ -656,7 +785,9 @@ export function ConversationRuntime({
       return;
     }
 
-    setMessages((prev) => [...prev, { id: `user-${Date.now()}`, role: 'user', content: userInput, timestamp: new Date() }]);
+    if (retryPrompt === undefined) {
+      setMessages((prev) => [...prev, { id: `user-${Date.now()}`, role: 'user', content: userInput, timestamp: new Date() }]);
+    }
     setIsProcessing(true);
     setStreamContent('');
     setStreamProvider('');
@@ -725,13 +856,17 @@ export function ConversationRuntime({
       setStreamProvider('');
       setStreamFallback(0);
       setActiveRetrieval(undefined);
+      setIsPaused(false);
+      refreshMemoryCount();
     }
     } catch (outerErr) {
       // Catches anything thrown outside the inner try-catch (e.g. executeSlashCommand)
       pushEvent(`Runtime error: ${outerErr instanceof Error ? outerErr.message : String(outerErr)}`, 'warn');
       setIsProcessing(false);
+      setIsPaused(false);
+      refreshMemoryCount();
     }
-  }, [activePromptText, activeProvider, buildRetrievalVisibility, executeSlashCommand, isProcessing, orchestrator, pushEvent, setPromptText, workingDirectory]);
+  }, [activePromptText, activeProvider, buildRetrievalVisibility, executeSlashCommand, isProcessing, orchestrator, pushEvent, refreshMemoryCount, setPromptText, workingDirectory]);
 
   // Keep stable refs pointing to latest closures so the stdin effect (Effect 2)
   // never needs these in its dep array — prevents it from re-running on every
@@ -933,15 +1068,37 @@ export function ConversationRuntime({
     // activeProvider), but never touches raw mode — that's handled above.
     const onData = (data: Buffer) => {
       dbg(`[DATA] hex=${data.toString('hex')} len=${data.length} processing=${String(isProcessingRef.current)}`);
-      if (isProcessingRef.current) return;
-      for (const event of parseTerminalInput(data)) {
+      
+      const parsedEvents = parseTerminalInput(data);
+
+      if (isProcessingRef.current) {
+        // Intercept hotkey events during prompt execution
+        for (const event of parsedEvents) {
+          if (event.type === 'ctrl-c' || event.type === 'escape') {
+            dbg(`[ABORT] User cancelled active stream`);
+            orchestrator.abort().catch(() => {});
+          } else if (event.type === 'text') {
+            const char = event.text.toLowerCase();
+            if (char === 'c') {
+              orchestrator.abort().catch(() => {});
+            } else if (char === 'p') {
+              togglePause().catch(() => {});
+            } else if (char === 's') {
+              triggerMidStreamSwitch().catch(() => {});
+            }
+          }
+        }
+        return;
+      }
+
+      for (const event of parsedEvents) {
         handleTerminalEventRef.current(event);
       }
     };
     dbg(`[STDIN] registering data listener`);
     stdin.on('data', onData);
     return () => { dbg('[STDIN] removing data listener'); stdin.off('data', onData); };
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [orchestrator, togglePause, triggerMidStreamSwitch]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <Box flexDirection="column" minHeight={22} paddingX={1}>
@@ -1012,6 +1169,7 @@ export function ConversationRuntime({
           showSuggestions={activePromptText().startsWith('/') && suggestions.length > 0}
           selectedSuggestionIndex={selectedSuggestionIndex}
           isProcessing={isProcessing}
+          isPaused={isPaused}
         />
       )}
     </Box>

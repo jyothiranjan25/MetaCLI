@@ -4,8 +4,8 @@ This document summarizes the comprehensive E2E user simulation, acceptance testi
 
 - **Status**: 🟩 PRODUCTION READY (PASS)
 - **Production Readiness Score**: `100%`
-- **Execution Date**: `2026-05-30T20:38:14.156Z`
-- **Total Duration**: `29.77s`
+- **Execution Date**: `2026-05-30T21:23:05.056Z`
+- **Total Duration**: `532.51s`
 
 ---
 
@@ -13,22 +13,22 @@ This document summarizes the comprehensive E2E user simulation, acceptance testi
 
 | Mode | User Profile | Status | Duration | Metrics / Diagnosis |
 | :--- | :--- | :---: | :---: | :--- |
-| **1** | First Time User (Startup & Onboarding Onboarding) | `🟢 PASS` | `6ms` | {"setupChecks":1,"globalPath":"/Users/jo/.metacli"} |
-| **2** | Power User (Daily Usage Session Retention) | `🟢 PASS` | `24322ms` | {"promptsExecuted":5} |
-| **3** | Large Repository User (Scalable AST Code Scanning) | `🟢 PASS` | `119ms` | {"totalFilesIndexed":100,"initialScanMs":87,"incrementalScanMs":8} |
-| **4** | Multi Provider User (Orchestration & Cooldown Recovery) | `🟢 PASS` | `4790ms` | {"providerCount":2,"adapters":["claude-code","gemini-cli"]} |
+| **1** | First Time User (Startup & Onboarding Onboarding) | `🟢 PASS` | `5ms` | {"setupChecks":1,"globalPath":"/Users/jo/.metacli"} |
+| **2** | Power User (Daily Usage Session Retention) | `🟢 PASS` | `186199ms` | {"promptsExecuted":5} |
+| **3** | Large Repository User (Scalable AST Code Scanning) | `🟢 PASS` | `97ms` | {"totalFilesIndexed":100,"initialScanMs":75,"incrementalScanMs":7} |
+| **4** | Multi Provider User (Orchestration & Cooldown Recovery) | `🟢 PASS` | `345717ms` | {"providerCount":2,"adapters":["claude-code","gemini-cli"]} |
 | **5** | Token Efficiency User (Context Compression & Delta Search) | `🟢 PASS` | `1ms` | {"originalContextChars":120,"compressedContextChars":131,"cacheReuseEfficiency":100} |
 | **6** | Skills User (Ecosystem Activation & Workflows) | `🟢 PASS` | `0ms` | {"skillsRegisteredCount":9,"testSkillStatus":"enabled"} |
 | **7** | MCP User (Model Context Protocol Multi-Agent Gateway) | `🟢 PASS` | `0ms` | {"registeredServers":10} |
-| **8** | Workflow User (Logical Checkpoints & Hard-Rollback) | `🟢 PASS` | `369ms` | {"rollbackExecuted":true,"checkpointsCount":1} |
+| **8** | Workflow User (Logical Checkpoints & Hard-Rollback) | `🟢 PASS` | `334ms` | {"rollbackExecuted":true,"checkpointsCount":1} |
 | **9** | Brain User (Cognitive Memory Compaction & Retain Layer) | `🟢 PASS` | `4ms` | {"hotCountBefore":6,"hotCountAfter":0,"warmCountAfter":1} |
-| **10** | Timeline User (Workspace Architecture Evolution) | `🟢 PASS` | `2ms` | {"timelineEvents":1} |
+| **10** | Timeline User (Workspace Architecture Evolution) | `🟢 PASS` | `0ms` | {"timelineEvents":1} |
 | **11** | Search User (AST-Driven Cognitive Graph Search) | `🟢 PASS` | `2ms` | {"filesMatched":1,"symbolsMatched":1} |
 | **12** | Security User (Sandbox Containment & Static Risk Blocking) | `🟢 PASS` | `0ms` | {"traversalIntercepted":true,"commandRiskIntercepted":true} |
-| **13** | Large Prompt User (Paste Buffer Processing) | `🟢 PASS` | `0ms` | {"lineCount":1000,"characterCount":68999,"isLargePaste":true} |
+| **13** | Large Prompt User (Paste Buffer Processing) | `🟢 PASS` | `1ms` | {"lineCount":1000,"characterCount":68999,"isLargePaste":true} |
 | **14** | UI User (Responsive Viewports & TMUX Layout grids) | `🟢 PASS` | `0ms` | {"terminalWidth":120,"terminalHeight":32,"isGridCompliant":true} |
-| **15** | Failure User (Graceful Recovery & DB Self-Healing) | `🟢 PASS` | `2ms` | {"recordRestored":true} |
-| **16** | Long Running User (Event Memory leak & Decay Stress-testing) | `🟢 PASS` | `1ms` | {"eventsFired":1000,"eventsReceived":1000,"memoryGrowthMB":-0.15} |
+| **15** | Failure User (Graceful Recovery & DB Self-Healing) | `🟢 PASS` | `1ms` | {"recordRestored":true} |
+| **16** | Long Running User (Event Memory leak & Decay Stress-testing) | `🟢 PASS` | `1ms` | {"eventsFired":1000,"eventsReceived":1000,"memoryGrowthMB":0.65} |
 
 ---
 
