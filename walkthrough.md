@@ -55,6 +55,9 @@ _No manual repairs required; all relational transactions and failover loops reso
 ### 3. Core UI Metrics
 - **View Grid Layout Bounds**: Clean viewport rendering at `120x32` and `80x24` scales.
 - **TMUX Layout**: Complies with modular grid standards under accelerated event stream loads.
+- **Table Width Expansion & Pixel Alignment**: Widened the `Available Limit` table column inside `ProvidersOverlay.tsx` from `26` to `38` characters to completely fit high-fidelity multi-metric statuses without truncation, and symmetrically adjusted all framing separators inside `OverlayManager.tsx` to match.
+- **Responsive Rounded Intelligence Header**: Redesigned `IntelligenceHeader` into a modern round-bordered cyan telemetry card with short, pixel-aligned labels (e.g. `Memories`, `Efficiency`) and removed the hardcoded `width={110}` constraint, completely resolving text wrapping and misalignment on standard 80-column developer terminals.
+- **Harness Verification**: Successfully compiled all TypeScript packages, ran the entire monorepo Vitest test suite (`15 passed`), and validated the complete 16-mode acceptance testing simulation suite (`100% Pass`).
 
 ---
 

@@ -115,23 +115,34 @@ const IntelligenceHeader = React.memo(({
   contextState: string;
   tokenEfficiency: number;
   pulse: Pulse;
-}) => (
-  <Box justifyContent="space-between" paddingX={1}>
-    <Box gap={2}>
-      <Text bold color="white">MetaCLI</Text>
-      <Text color="gray">Workspace: <Text color="white">{workspace}</Text></Text>
-      <Text color="gray">Brain: <Text color={brainWarm ? 'green' : 'yellow'}>{brainWarm ? 'Warm' : 'Cold'}</Text></Text>
-      <Text color="gray">Provider: <Text color="white">{provider || 'Auto'}</Text></Text>
-      <Text color="gray">Memory: <Text color="white">{memoryCount} memories</Text></Text>
-      <Text color="gray">Context: <Text color="green">{contextState}</Text></Text>
-      <Text color="gray">Token Efficiency: <Text color="green">{tokenEfficiency}%</Text></Text>
+}) => {
+  const providerName = provider
+    ? provider.split('-').map((s) => s.charAt(0).toUpperCase() + s.slice(1)).join(' ')
+    : 'Auto-Route';
+
+  return (
+    <Box flexDirection="column" borderStyle="round" borderColor="cyan" paddingX={1} marginBottom={1}>
+      <Box justifyContent="space-between">
+        <Box gap={1}>
+          <Text bold color="cyan">◈ MetaCLI</Text>
+          <Text color="gray">|</Text>
+          <Text color="white" bold>{workspace}</Text>
+        </Box>
+        <Box gap={1}>
+          <Text color={pulse === 'idle' ? 'gray' : 'green'}>{pulse === 'idle' ? '○' : '●'}</Text>
+          <Text color="gray" dimColor>{pulse}</Text>
+        </Box>
+      </Box>
+      <Box gap={3} marginTop={0}>
+        <Text color="gray">Brain: <Text color={brainWarm ? 'green' : 'yellow'}>{brainWarm ? 'Warm ⚡' : 'Cold'}</Text></Text>
+        <Text color="gray">Active: <Text color="white">{providerName}</Text></Text>
+        <Text color="gray">Memories: <Text color="white">{memoryCount}</Text></Text>
+        <Text color="gray">Context: <Text color="green">{contextState}</Text></Text>
+        <Text color="gray">Efficiency: <Text color="green" bold>{tokenEfficiency}%</Text></Text>
+      </Box>
     </Box>
-    <Box gap={1}>
-      <Text color={pulse === 'idle' ? 'gray' : 'green'}>{pulse === 'idle' ? '○' : '●'}</Text>
-      <Text color="gray">{pulse}</Text>
-    </Box>
-  </Box>
-));
+  );
+});
 
 const ContinuationPrompt = React.memo(({
   workspace,
@@ -933,7 +944,7 @@ export function ConversationRuntime({
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
-    <Box flexDirection="column" minHeight={22} width={110} paddingX={1}>
+    <Box flexDirection="column" minHeight={22} paddingX={1}>
       <IntelligenceHeader
         workspace={workspaceName(workingDirectory)}
         brainWarm={indexedFiles > 0}
