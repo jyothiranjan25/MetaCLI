@@ -34,6 +34,7 @@ interface ConversationRuntimeProps {
   orchestrator: Orchestrator;
   eventBus: EventBus<MetaCLIEvents>;
   workingDirectory: string;
+  initialProviders?: Map<string, { installed: boolean; authenticated: boolean }>;
 }
 
 interface RetrievalVisibility {
@@ -328,6 +329,7 @@ export function ConversationRuntime({
   orchestrator,
   eventBus,
   workingDirectory,
+  initialProviders,
 }: ConversationRuntimeProps): React.ReactElement {
   const { exit } = useApp();
   // Keep raw mode enabled throughout the lifecycle of this component.
@@ -352,8 +354,14 @@ export function ConversationRuntime({
   const [showPalette, _setShowPalette] = useState(false);
   const [suggestions, setSuggestions] = useState<CommandSuggestion[]>([]);
   const [selectedSuggestionIndex, setSelectedSuggestionIndex] = useState(0);
-  const [providers, setProviders] = useState<Map<string, { installed: boolean; authenticated: boolean }>>(new Map());
-  const [activeProvider, setActiveProvider] = useState('');
+  const [providers, setProviders] = useState<Map<string, { installed: boolean; authenticated: boolean }>>(
+    initialProviders ?? new Map(),
+  );
+  const [activeProvider, setActiveProvider] = useState(() => {
+    if (!initialProviders) return '';
+    const first = Array.from(initialProviders.entries()).find(([, v]) => v.authenticated);
+    return first ? first[0] : '';
+  });
   const [healthScores] = useState<Record<string, number>>({ 'claude-code': 100, 'gemini-cli': 96 });
   const [cooldowns] = useState<Record<string, string>>({});
   const [indexedFiles, setIndexedFiles] = useState(0);

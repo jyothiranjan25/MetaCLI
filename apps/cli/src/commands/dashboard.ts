@@ -12,6 +12,11 @@ export async function dashboardCommand(options: DashboardCommandOptions): Promis
   try {
     const { orchestrator, eventBus, resolvedDir } = await bootstrap(options.dir);
 
+    // Detect providers before rendering so /providers overlay shows them immediately.
+    // Without this the Map starts empty and the overlay shows "No providers detected"
+    // until the async useEffect inside ConversationRuntime finishes.
+    const initialProviders = await orchestrator.detectProviders();
+
     // Boot conversation-first UI
     // exitOnCtrlC:false — ConversationRuntime owns Ctrl+C to close overlays first
     const { waitUntilExit } = render(
@@ -19,6 +24,7 @@ export async function dashboardCommand(options: DashboardCommandOptions): Promis
         orchestrator,
         eventBus,
         workingDirectory: resolvedDir,
+        initialProviders,
       }),
       { exitOnCtrlC: false },
     );
