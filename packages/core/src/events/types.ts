@@ -14,7 +14,8 @@ export type StreamEvent =
   | { type: 'tool_result'; result: unknown }
   | { type: 'error'; error: string; code?: string }
   | { type: 'rate_limit'; retryAfter?: number }
-  | { type: 'done'; usage?: UsageEstimate };
+  | { type: 'done'; usage?: UsageEstimate }
+  | { type: 'routing_complete' };
 
 // ─── Usage & Limits ─────────────────────────────────────────────
 

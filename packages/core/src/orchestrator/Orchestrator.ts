@@ -261,6 +261,14 @@ export class Orchestrator {
       systemPrompt = systemPrompt ? `${contextLines}\n\n${systemPrompt}` : contextLines;
     }
 
+    // Inject brain context from the local scan index if available
+    if (options.contextResolver) {
+      const brainContext = await options.contextResolver(prompt);
+      if (brainContext) {
+        systemPrompt = systemPrompt ? `${brainContext}\n\n${systemPrompt}` : brainContext;
+      }
+    }
+
     const request: PromptRequest = {
       prompt,
       workingDirectory: options.workingDirectory ?? process.cwd(),

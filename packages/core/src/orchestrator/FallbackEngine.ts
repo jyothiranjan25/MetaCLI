@@ -58,6 +58,9 @@ export class FallbackEngine {
         prompt: request.prompt,
       });
 
+      // Let the UI know which provider was selected before waiting for the response
+      yield { type: 'routing_complete', provider: adapter.id, fallbacks };
+
       try {
         // Attempt to stream from this provider
         const startTime = Date.now();

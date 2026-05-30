@@ -41,6 +41,12 @@ export async function askCommand(prompt: string, options: AskCommandOptions): Pr
       process.exit(1);
     }
 
+    if (options.provider && !availableProviders.includes(options.provider)) {
+      console.warn(`\n⚠️  Provider "${options.provider}" not found or not authenticated.`);
+      console.warn(`   Available: ${availableProviders.join(', ')}`);
+      console.warn(`   Routing to best available provider instead.\n`);
+    }
+
     // exitOnCtrlC:false — let AskView's own Ctrl+C handler control exit
     const { waitUntilExit } = render(
       React.createElement(AskView, {

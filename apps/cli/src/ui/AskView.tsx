@@ -122,6 +122,10 @@ export function AskView({
             }
             break;
           }
+
+          case 'routing_complete':
+            // provider is already set via setProvider(streamEvent.provider) above
+            break;
         }
       }
 
