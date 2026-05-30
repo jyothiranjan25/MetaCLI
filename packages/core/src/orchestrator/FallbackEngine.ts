@@ -103,37 +103,34 @@ export class FallbackEngine {
 
           // Check for error events
           if (event.type === 'error') {
-            const isAuthError = this.isAuthError(event.error);
+            const isRateLimit = this.isRateLimitError(event.error);
+            const isAuth = this.isAuthError(event.error);
+            const errorType = isRateLimit ? 'Rate limit' : isAuth ? 'Auth' : 'Provider';
+            const reason = `${errorType} error: ${event.error}`;
 
             this.router.recordOutcome(adapter.id, {
               success: false,
-              rateLimited: false,
+              rateLimited: isRateLimit,
               durationMs: Date.now() - startTime,
               error: event.error,
             });
 
-            if (isAuthError) {
-              fallbacks.push({
-                from: adapter.id,
-                to: '(selecting...)',
-                reason: `Auth error: ${event.error}`,
-                timestamp: new Date(),
-              });
+            fallbacks.push({
+              from: adapter.id,
+              to: '(selecting...)',
+              reason,
+              timestamp: new Date(),
+            });
 
-              await this.eventBus.emit('prompt:fallback', {
-                promptId,
-                from: adapter.id,
-                to: '(selecting...)',
-                reason: `Auth error: ${event.error}`,
-              });
+            await this.eventBus.emit('prompt:fallback', {
+              promptId,
+              from: adapter.id,
+              to: '(selecting...)',
+              reason,
+            });
 
-              excluded.add(adapter.id);
-              break;
-            }
-
-            // Non-recoverable error — yield it and stop
-            yield { ...event, provider: adapter.id, fallbacks };
-            return;
+            excluded.add(adapter.id);
+            break;
           }
 
           // Yield successful events
@@ -215,5 +212,19 @@ export class FallbackEngine {
 
     const lower = errorMessage.toLowerCase();
     return authPatterns.some((pattern) => lower.includes(pattern));
+  }
+
+  private isRateLimitError(errorMessage: string): boolean {
+    const rateLimitPatterns = [
+      '429',
+      'rate limit',
+      'quota',
+      'limit exceeded',
+      'too many requests',
+      'session limit',
+    ];
+
+    const lower = errorMessage.toLowerCase();
+    return rateLimitPatterns.some((pattern) => lower.includes(pattern));
   }
 }
