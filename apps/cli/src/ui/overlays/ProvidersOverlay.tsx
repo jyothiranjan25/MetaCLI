@@ -31,7 +31,15 @@ export function ProvidersOverlay({
     return idx >= 0 ? idx : 0;
   });
 
+  const [mountedAt] = useState(() => Date.now());
+
   useInput((input, key) => {
+    // Ignore keypresses immediately after mounting to prevent input bleed
+    // (e.g. the Enter key pressed to submit the '/providers' command)
+    if (Date.now() - mountedAt < 100) {
+      return;
+    }
+
     if (key.downArrow) {
       setSelectedIndex((i) => Math.min(providerList.length - 1, i + 1));
       return;

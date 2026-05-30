@@ -48,14 +48,13 @@ describe('paste input parsing', () => {
     const events = parseTerminalInput('\x1b[0~');
     const textEvents = events.filter((e) => e.type === 'text');
     expect(textEvents).toHaveLength(0);
-    expect(events).toEqual([{ type: 'escape' }]);
+    expect(events).toEqual([]);
   });
 
   it('silently absorbs arbitrary CSI sequences between regular keystrokes', () => {
     // Terminal sends \x1b[?2004h (bracketed-paste enabled ack) then user types "hi"
     const events = parseTerminalInput('\x1b[?2004hhi');
     expect(events).toEqual([
-      { type: 'escape' },
       { type: 'text', text: 'h', pasted: false },
       { type: 'text', text: 'i', pasted: false },
     ]);

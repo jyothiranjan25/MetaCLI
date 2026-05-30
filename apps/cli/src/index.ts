@@ -8,7 +8,6 @@
 
 import { Command } from 'commander';
 import { setupCommand } from './commands/setup.js';
-
 // Prevent unhandled rejections and uncaught exceptions from crashing the TUI.
 // All async paths inside ConversationRuntime now have .catch() handlers, but
 // this is the last-resort safety net for any rogue throw.

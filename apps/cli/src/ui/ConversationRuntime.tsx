@@ -10,7 +10,8 @@
  * the conversation as the center of gravity.
  */
 
-import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useCallback, useMemo, useRef } from 'react';
+const dbg = (_msg: string) => {};
 import { Box, Text, useApp, useInput } from 'ink';
 import Spinner from 'ink-spinner';
 import path from 'node:path';
@@ -331,7 +332,12 @@ export function ConversationRuntime({
   workingDirectory,
   initialProviders,
 }: ConversationRuntimeProps): React.ReactElement {
+  dbg('[RENDER] ConversationRuntime render');
+  const exitRef = useRef<() => void>(() => {});
   const { exit } = useApp();
+  // Keep exitRef current so handleTerminalEvent can call exit() without
+  // listing it as a dep (useApp returns a new exit fn on every re-render).
+  exitRef.current = exit;
   // Keep raw mode enabled throughout the lifecycle of this component.
   // Ink's useInput increments an internal rawModeEnabledCount, preventing other transient
   // components (like overlays or command palettes) from disabling raw mode on unmount.
@@ -376,11 +382,13 @@ export function ConversationRuntime({
   const selectedSuggestionIndexRef = useRef(0);
   const showPaletteRef = useRef(false);
   const activeOverlayRef = useRef<OverlayId>(null);
+  const handleTerminalEventRef = useRef<(e: TerminalInputEvent) => void>(() => {});
 
   // Wrappers that keep refs and state in sync atomically — the ref update is
   // synchronous so handleTerminalEvent always reads the correct value even
   // before the next React render commits the state change.
   const setActiveOverlay = useCallback((id: OverlayId) => {
+    dbg(`[OVERLAY] ${String(activeOverlayRef.current)} -> ${String(id)}`);
     activeOverlayRef.current = id;
     _setActiveOverlay(id);
   }, []);
@@ -668,18 +676,20 @@ export function ConversationRuntime({
     }
   }, [activePromptText, activeProvider, buildRetrievalVisibility, executeSlashCommand, isProcessing, orchestrator, pushEvent, setPromptText, workingDirectory]);
 
-  // Keep stable refs pointing to latest closures so handleTerminalEvent never
-  // needs these in its own dep array — prevents Effect 2 from re-running on
-  // every provider/state change.
+  // Keep stable refs pointing to latest closures so the stdin effect (Effect 2)
+  // never needs these in its dep array — prevents it from re-running on every
+  // provider/state change or whenever useApp() re-creates exit.
   useEffect(() => { submitPromptRef.current = submitPrompt; }, [submitPrompt]);
   useEffect(() => { executeSlashCommandRef.current = executeSlashCommand; }, [executeSlashCommand]);
 
   const handleTerminalEvent = useCallback((event: TerminalInputEvent) => {
+    dbg(`[EVENT] ${event.type}${event.type === 'text' ? `:"${(event as any).text}"` : ''}`);
     if (event.type === 'ctrl-c') {
       // Close overlays/palette first; only exit when nothing is open
       if (showPaletteRef.current) { setShowPalette(false); return; }
       if (activeOverlayRef.current) { setActiveOverlay(null); return; }
-      exit();
+      dbg(`[EXIT] ctrl-c fired, overlay=${String(activeOverlayRef.current)}, palette=${String(showPaletteRef.current)}`);
+      exitRef.current();
       // Background timers (scan workers, monitors) keep the event loop alive
       // after Ink unmounts, so force-exit after a short drain window.
       setTimeout(() => process.exit(0), 150);
@@ -691,6 +701,7 @@ export function ConversationRuntime({
       return;
     }
     if (event.type === 'escape') {
+      dbg(`[ESCAPE] overlay=${String(activeOverlayRef.current)}`);
       if (showPaletteRef.current) setShowPalette(false);
       if (activeOverlayRef.current) setActiveOverlay(null);
       return;
@@ -823,12 +834,17 @@ export function ConversationRuntime({
   // submitPrompt and executeSlashCommand are accessed via refs — removing them
   // from deps means this callback is stable and Effect 2 (data listener) never
   // re-registers when activeProvider or other prompt-related state changes.
-  }, [activePromptText, addSystemMessage, exit, pushEvent, setPromptText]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [activePromptText, addSystemMessage, pushEvent, setPromptText]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Keep ref current so Effect 2 can always call the latest handleTerminalEvent
+  // without listing it as a dep (which would cause the listener to re-register
+  // on every render where useApp()/exit changes).
+  handleTerminalEventRef.current = handleTerminalEvent;
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const stdin = process.stdin;
     const stdout = process.stdout;
     // Raw mode + bracketed paste — mount/unmount only, never mid-session.
+    dbg(`[EFFECT1] MOUNT raw mode setup. isTTY=${String(stdout.isTTY)} hasSetRawMode=${String(typeof stdin.setRawMode === 'function')}`);
     if (stdout.isTTY) stdout.write(ENABLE_BRACKETED_PASTE);
     if (typeof stdin.setRawMode === 'function') stdin.setRawMode(true);
     stdin.resume();
@@ -845,6 +861,7 @@ export function ConversationRuntime({
     stdinAny.unref = () => { /* suppressed — ConversationRuntime holds the ref */ };
 
     return () => {
+      dbg('[EFFECT1] UNMOUNT cleanup stack:\n' + new Error().stack?.split('\n').slice(1,5).join('\n'));
       // Restore unref before unmounting so the process can exit cleanly
       if (origUnref) stdinAny.unref = origUnref;
       if (stdout.isTTY) stdout.write(DISABLE_BRACKETED_PASTE);
@@ -853,19 +870,21 @@ export function ConversationRuntime({
     };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const stdin = process.stdin;
     // Data listener re-registers when handleTerminalEvent changes (e.g. new
     // activeProvider), but never touches raw mode — that's handled above.
     const onData = (data: Buffer) => {
+      dbg(`[DATA] hex=${data.toString('hex')} len=${data.length} processing=${String(isProcessingRef.current)}`);
       if (isProcessingRef.current) return;
       for (const event of parseTerminalInput(data)) {
-        handleTerminalEvent(event);
+        handleTerminalEventRef.current(event);
       }
     };
+    dbg(`[STDIN] registering data listener`);
     stdin.on('data', onData);
-    return () => { stdin.off('data', onData); };
-  }, [handleTerminalEvent]);
+    return () => { dbg('[STDIN] removing data listener'); stdin.off('data', onData); };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <Box flexDirection="column" minHeight={22} width={110} paddingX={1}>
