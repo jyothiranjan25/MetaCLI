@@ -269,6 +269,54 @@ export class Orchestrator {
       }
     }
 
+    const cleanPrompt = prompt.toLowerCase().replace(/[?.]/g, '').trim();
+    const isCapabilitiesQuery =
+      cleanPrompt === 'what you can do' ||
+      cleanPrompt === 'what can you do' ||
+      cleanPrompt === 'what is metacli' ||
+      cleanPrompt === 'help' ||
+      cleanPrompt === 'info';
+
+    if (isCapabilitiesQuery) {
+      const providerId = options.preferredProvider ?? adaptiveConfig.providerId;
+      const adapter = this.router.getAdapter(providerId);
+      if (adapter) {
+        try {
+          const detection = await adapter.detect();
+          if (detection.installed && detection.binaryPath) {
+            const { execa } = await import('execa');
+            const helpProc = await execa(detection.binaryPath, ['--help'], { reject: false, timeout: 5000 });
+            if (helpProc.exitCode === 0 && helpProc.stdout) {
+              const liveHelp = helpProc.stdout.trim();
+              const helpEnrichment = `
+[ACTUAL ACTIVE CLI CAPABILITIES - LIVE HELP MANUAL FOR ${adapter.displayName}]
+Below is the actual help output from running the binary "${detection.binaryPath} --help":
+\`\`\`
+${liveHelp}
+\`\`\`
+
+[METACLI SHELL CAPABILITIES]
+MetaCLI is an advanced visual orchestration shell. In addition to running the active provider above, MetaCLI provides these native capabilities and overlays:
+- /providers : Check status, latency, and available limits of all active adapters (Claude Code, Gemini CLI, Codex CLI, OpenCode CLI).
+- /brain : Explore workspace file maps, dependency graphs, and cognitive AST indices.
+- /usage : Check total input/output tokens, cost breakdowns, and current session spends.
+- /memory : Compact SQLite-stored context memory slots, saving up to 94% of input tokens.
+- /timeline : Examine historical system decisions and architectural drift.
+- metacli run: Runs autonomous workflows with safety containment, Git transaction checkpoints, and auto-rollback on failure.
+- path boundaries: PathGuard locks commands within workspace bounds.
+
+[INSTRUCTION]
+The user is asking "what you can do?". You are the actual underlying CLI tool (${adapter.displayName}) working alongside MetaCLI. Use the live CLI help manual above and MetaCLI's capabilities to generate a highly detailed, professional, and visually stunning markdown response explaining exactly what YOU and MetaCLI can do in their workspace. Include key commands and flags that are supported by your binary.`;
+              
+              systemPrompt = systemPrompt ? `${helpEnrichment}\n\n${systemPrompt}` : helpEnrichment;
+            }
+          }
+        } catch {
+          // Fallback silently if help execution fails
+        }
+      }
+    }
+
     const request: PromptRequest = {
       prompt,
       workingDirectory: options.workingDirectory ?? process.cwd(),
