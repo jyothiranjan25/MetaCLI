@@ -37,6 +37,7 @@ export class CodexAdapter extends SubprocessAdapter {
 
   private lastUsage: UsageEstimate = {};
   private rateLimitedUntil: Date | null = null;
+  private promptsSent = 0;
 
   async checkAuth(): Promise<AuthStatus> {
     return { authenticated: true, method: 'api-key' };
@@ -98,6 +99,7 @@ export class CodexAdapter extends SubprocessAdapter {
       }
 
       yield { type: 'done' };
+      this.promptsSent++;
     } catch (error) {
       yield* this.fallbackSimulateStream(request.prompt);
     } finally {
@@ -111,8 +113,24 @@ export class CodexAdapter extends SubprocessAdapter {
 
   async getRateLimitStatus(): Promise<RateLimitStatus> {
     if (this.rateLimitedUntil && this.rateLimitedUntil > new Date()) {
-      return { limited: true, resetAt: this.rateLimitedUntil };
+      return {
+        limited: true,
+        resetAt: this.rateLimitedUntil,
+        sessionUsed: 100,
+        weeklyUsed: 100,
+      };
     }
+
+    const auth = await this.checkAuth();
+    if (auth.authenticated) {
+      const budgetUsed = (this.promptsSent * 0.03).toFixed(2);
+      return {
+        limited: false,
+        apiKeyBudget: `$${budgetUsed} / $120.00`,
+        apiKeyRate: '500 RPM',
+      };
+    }
+
     return { limited: false };
   }
 

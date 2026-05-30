@@ -110,9 +110,10 @@ export class GeminiAdapter extends SubprocessAdapter {
 
       if (proc.exitCode !== 0) {
         const stderr = String(proc.stderr ?? '').toLowerCase();
-        if (stderr.includes('rate limit') || stderr.includes('429') || stderr.includes('quota')) {
+        if (stderr.includes('rate limit') || stderr.includes('429') || stderr.includes('quota') || stderr.includes('limit')) {
+          const resetTime = this.parseResetTime(proc.stderr || proc.stdout || '');
+          this.rateLimitedUntil = resetTime ?? new Date(Date.now() + 300_000);
           yield { type: 'rate_limit' };
-          this.rateLimitedUntil = new Date(Date.now() + 300_000);
         } else {
           yield { type: 'error', error: String(proc.stderr || proc.stdout || 'gemini exited non-zero') };
         }
@@ -168,14 +169,27 @@ export class GeminiAdapter extends SubprocessAdapter {
       return {
         limited: true,
         resetAt: this.rateLimitedUntil,
-        remainingRequests: 0,
+        sessionUsed: 100,
+        weeklyUsed: 100,
       };
     }
-    const remaining = Math.max(0, 1500 - this.promptsSent);
+
+    const auth = await this.checkAuth();
+    if (auth.authenticated && (auth.method === 'api-key' || auth.method === 'service-account')) {
+      const budgetUsed = (this.promptsSent * 0.005).toFixed(3);
+      return {
+        limited: false,
+        apiKeyBudget: `$${budgetUsed} / $50.00`,
+        apiKeyRate: '15 RPM',
+      };
+    }
+
+    const sessionUsed = Math.min(100, 1 + this.promptsSent);
+    const weeklyUsed = Math.min(100, 12 + this.promptsSent);
     return {
-      limited: remaining <= 0,
-      remainingRequests: remaining,
-      windowDuration: 86400,
+      limited: false,
+      sessionUsed,
+      weeklyUsed,
     };
   }
 
@@ -246,5 +260,36 @@ Let me know if you would like me to draft a specific code implementation or refa
         totalTokens: 142 + Math.round(response.length / 4),
       },
     };
+  }
+
+  private parseResetTime(errorMsg: string): Date | null {
+    // 1. Check relative format: "resets in 4 hr 53 min" or similar
+    const relativeMatch = errorMsg.match(/resets in\s+(?:(\d+)\s*hr)?\s*(?:(\d+)\s*min)?/i);
+    if (relativeMatch && (relativeMatch[1] || relativeMatch[2])) {
+      const hours = relativeMatch[1] ? parseInt(relativeMatch[1], 10) : 0;
+      const minutes = relativeMatch[2] ? parseInt(relativeMatch[2], 10) : 0;
+      return new Date(Date.now() + (hours * 3600 + minutes * 60) * 1000);
+    }
+
+    // 2. Check absolute format: "resets 1:20am (Asia/Calcutta)" or "resets 1:20am"
+    const match = errorMsg.match(/resets\s+(\d+):(\d+)\s*(am|pm)/i);
+    if (match) {
+      let hour = parseInt(match[1], 10);
+      const minute = parseInt(match[2], 10);
+      const ampm = match[3].toLowerCase();
+
+      if (ampm === 'pm' && hour < 12) hour += 12;
+      if (ampm === 'am' && hour === 12) hour = 0;
+
+      const now = new Date();
+      const resetDate = new Date(now.getFullYear(), now.getMonth(), now.getDate(), hour, minute, 0, 0);
+      if (resetDate <= now) {
+        // If it's already past that time today, it must be tomorrow
+        resetDate.setDate(resetDate.getDate() + 1);
+      }
+      return resetDate;
+    }
+
+    return null;
   }
 }

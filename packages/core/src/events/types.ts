@@ -33,6 +33,11 @@ export interface RateLimitStatus {
   remainingRequests?: number;
   resetAt?: Date;
   windowDuration?: number;
+  sessionUsed?: number;
+  weeklyUsed?: number;
+  dailyRoutines?: string;
+  apiKeyBudget?: string;
+  apiKeyRate?: string;
 }
 
 // ─── Provider Detection & Health ────────────────────────────────

@@ -74,10 +74,10 @@ export function ProvidersOverlay({
           <Text color="gray" bold dimColor>{'    Provider            '}</Text>
           <Text color="gray" bold dimColor>{'  Status      '}</Text>
           <Text color="gray" bold dimColor>{'  Auth        '}</Text>
-          <Text color="gray" bold dimColor>{'  Available Limit         '}</Text>
+          <Text color="gray" bold dimColor>{'  Available Limit                       '}</Text>
           <Text color="gray" bold dimColor>{'  Health  '}</Text>
         </Box>
-        <Text color="gray" dimColor>{'  ──────────────────────────────────────────────────────────────────────────'}</Text>
+        <Text color="gray" dimColor>{'  ' + '─'.repeat(98)}</Text>
 
         {providerList.length === 0 && (
           <Box paddingLeft={2} marginTop={1}>
@@ -109,7 +109,7 @@ export function ProvidersOverlay({
               <Text color={info.authenticated ? 'green' : 'yellow'} width={14}>
                 {info.authenticated ? '  ✓ authed' : '  ⚠ login req'}
               </Text>
-              <Text color={isLocked ? 'red' : 'green'} width={26}>
+              <Text color={isLocked ? 'red' : 'green'} width={38}>
                 {'  '}{limitText}
               </Text>
               <Text color={healthColor} width={10}>

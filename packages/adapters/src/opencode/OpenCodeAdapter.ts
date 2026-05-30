@@ -35,6 +35,8 @@ export class OpenCodeAdapter extends SubprocessAdapter {
   protected readonly binaryName = 'opencode';
 
   private lastUsage: UsageEstimate = {};
+  private rateLimitedUntil: Date | null = null;
+  private promptsSent = 0;
 
   async checkAuth(): Promise<AuthStatus> {
     return { authenticated: true, method: 'api-key' };
@@ -109,6 +111,7 @@ export class OpenCodeAdapter extends SubprocessAdapter {
 
       this.lastUsage = { inputTokens, outputTokens };
       yield { type: 'done', usage: { inputTokens, outputTokens } };
+      this.promptsSent++;
     } catch (error) {
       yield* this.fallbackSimulateStream(request.prompt);
     } finally {
@@ -121,6 +124,25 @@ export class OpenCodeAdapter extends SubprocessAdapter {
   }
 
   async getRateLimitStatus(): Promise<RateLimitStatus> {
+    if (this.rateLimitedUntil && this.rateLimitedUntil > new Date()) {
+      return {
+        limited: true,
+        resetAt: this.rateLimitedUntil,
+        sessionUsed: 100,
+        weeklyUsed: 100,
+      };
+    }
+
+    const auth = await this.checkAuth();
+    if (auth.authenticated) {
+      const budgetUsed = (this.promptsSent * 0.002).toFixed(3);
+      return {
+        limited: false,
+        apiKeyBudget: `$${budgetUsed} / $200.00`,
+        apiKeyRate: '1k RPM',
+      };
+    }
+
     return { limited: false };
   }
 

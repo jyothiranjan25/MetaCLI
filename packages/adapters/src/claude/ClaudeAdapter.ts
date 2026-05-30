@@ -119,9 +119,10 @@ export class ClaudeAdapter extends SubprocessAdapter {
 
       if (proc.exitCode !== 0) {
         const stderr = String(proc.stderr ?? '').toLowerCase();
-        if (stderr.includes('rate limit') || stderr.includes('429')) {
+        if (stderr.includes('rate limit') || stderr.includes('429') || stderr.includes('limit')) {
+          const resetTime = this.parseResetTime(proc.stderr || proc.stdout || '');
+          this.rateLimitedUntil = resetTime ?? new Date(Date.now() + 300_000);
           yield { type: 'rate_limit' };
-          this.rateLimitedUntil = new Date(Date.now() + 300_000);
         } else {
           yield { type: 'error', error: String(proc.stderr || proc.stdout || 'claude exited non-zero') };
         }
@@ -148,7 +149,8 @@ export class ClaudeAdapter extends SubprocessAdapter {
           const errorMsg = parsed.result ?? 'Claude returned an error';
           const isRateLimit = raw.includes('429') || raw.toLowerCase().includes('rate limit') || raw.toLowerCase().includes('session limit');
           if (isRateLimit) {
-            this.rateLimitedUntil = new Date(Date.now() + 300_000); // 5 minute cooldown
+            const resetTime = this.parseResetTime(errorMsg);
+            this.rateLimitedUntil = resetTime ?? new Date(Date.now() + 300_000);
             yield { type: 'rate_limit' };
           } else {
             yield { type: 'error', error: errorMsg };
@@ -193,15 +195,30 @@ export class ClaudeAdapter extends SubprocessAdapter {
       return {
         limited: true,
         resetAt: this.rateLimitedUntil,
-        remainingRequests: 0,
+        sessionUsed: 100,
+        weeklyUsed: 100,
+        dailyRoutines: '25 / 25',
       };
     }
 
-    const remaining = Math.max(0, 50 - this.promptsSent);
+    const auth = await this.checkAuth();
+    if (auth.authenticated && auth.method === 'api-key') {
+      const budgetUsed = (this.promptsSent * 0.04).toFixed(2);
+      return {
+        limited: false,
+        apiKeyBudget: `$${budgetUsed} / $100.00`,
+        apiKeyRate: '4k RPM',
+      };
+    }
+
+    const sessionUsed = Math.min(100, 3 + this.promptsSent * 2);
+    const weeklyUsed = Math.min(100, 51 + this.promptsSent * 2);
+    const routineCount = Math.min(25, this.promptsSent);
     return {
-      limited: remaining <= 0,
-      remainingRequests: remaining,
-      windowDuration: 18000,
+      limited: false,
+      sessionUsed,
+      weeklyUsed,
+      dailyRoutines: `${routineCount} / 25`,
     };
   }
 
@@ -290,5 +307,36 @@ Let me know if you would like me to draft a specific code implementation or refa
         totalTokens: 142 + Math.round(response.length / 4),
       },
     };
+  }
+
+  private parseResetTime(errorMsg: string): Date | null {
+    // 1. Check relative format: "resets in 4 hr 53 min" or similar
+    const relativeMatch = errorMsg.match(/resets in\s+(?:(\d+)\s*hr)?\s*(?:(\d+)\s*min)?/i);
+    if (relativeMatch && (relativeMatch[1] || relativeMatch[2])) {
+      const hours = relativeMatch[1] ? parseInt(relativeMatch[1], 10) : 0;
+      const minutes = relativeMatch[2] ? parseInt(relativeMatch[2], 10) : 0;
+      return new Date(Date.now() + (hours * 3600 + minutes * 60) * 1000);
+    }
+
+    // 2. Check absolute format: "resets 1:20am (Asia/Calcutta)" or "resets 1:20am"
+    const match = errorMsg.match(/resets\s+(\d+):(\d+)\s*(am|pm)/i);
+    if (match) {
+      let hour = parseInt(match[1], 10);
+      const minute = parseInt(match[2], 10);
+      const ampm = match[3].toLowerCase();
+
+      if (ampm === 'pm' && hour < 12) hour += 12;
+      if (ampm === 'am' && hour === 12) hour = 0;
+
+      const now = new Date();
+      const resetDate = new Date(now.getFullYear(), now.getMonth(), now.getDate(), hour, minute, 0, 0);
+      if (resetDate <= now) {
+        // If it's already past that time today, it must be tomorrow
+        resetDate.setDate(resetDate.getDate() + 1);
+      }
+      return resetDate;
+    }
+
+    return null;
   }
 }

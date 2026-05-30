@@ -477,9 +477,16 @@ export function ConversationRuntime({
                 ? resetTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
                 : 'soon';
               nextLimits[id] = `Locked (resets ${timeStr})`;
-            } else if (rateLimit.remainingRequests !== undefined) {
-              const total = id === 'claude-code' ? 50 : 1500;
-              nextLimits[id] = `${rateLimit.remainingRequests}/${total} remaining`;
+            } else if (rateLimit.sessionUsed !== undefined && rateLimit.weeklyUsed !== undefined) {
+              nextLimits[id] = `Sess: ${rateLimit.sessionUsed}% | Wk: ${rateLimit.weeklyUsed}%`;
+              if (rateLimit.dailyRoutines) {
+                nextLimits[id] += ` | Rtn: ${rateLimit.dailyRoutines}`;
+              }
+            } else if (rateLimit.apiKeyBudget !== undefined) {
+              nextLimits[id] = `Budget: ${rateLimit.apiKeyBudget}`;
+              if (rateLimit.apiKeyRate) {
+                nextLimits[id] += ` | ${rateLimit.apiKeyRate}`;
+              }
             } else {
               nextLimits[id] = 'Unlimited';
             }

@@ -162,9 +162,9 @@ export function OverlayManager({ activeOverlay, context, onClose }: OverlayManag
       paddingY={0}
       marginBottom={1}
     >
-      <Text color="gray" dimColor>{'─'.repeat(78)}</Text>
+      <Text color="gray" dimColor>{'─'.repeat(102)}</Text>
       {renderOverlay()}
-      <Text color="gray" dimColor>{'─'.repeat(78)}</Text>
+      <Text color="gray" dimColor>{'─'.repeat(102)}</Text>
     </Box>
   );
 }
