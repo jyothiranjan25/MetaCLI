@@ -14,7 +14,6 @@
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { access, constants } from 'node:fs/promises';
-import { execa } from 'execa';
 import type {
   AdapterCapabilities,
   AuthStatus,
@@ -97,59 +96,77 @@ export class GeminiAdapter extends SubprocessAdapter {
         return;
       }
 
-      // Gemini: -p/--prompt takes the prompt as its value (not a positional arg like Claude)
-      // stdin: 'ignore' prevents gemini from waiting for stdin input.
-      // Note: gemini uses -p not --output-format; that flag is unsupported by gemini CLI.
-      const proc = await execa(detection.binaryPath, ['-p', request.prompt], {
+      // Gemini CLI: -p takes the prompt as its value, followed by any file parameters
+      const args = ['-p', request.prompt, '-o', 'stream-json'];
+      if (request.files && request.files.length > 0) {
+        args.push(...request.files);
+      }
+
+      const proc = this.spawn(args, {
         cwd: request.workingDirectory,
         timeout: request.timeout ?? 300_000,
-        env: { ...process.env, NO_COLOR: '1' },
-        stdin: 'ignore',
-        reject: false,
+        disableColors: true,
       });
 
-      if (proc.exitCode !== 0) {
-        const stderr = String(proc.stderr ?? '').toLowerCase();
+      // Real progressive stdout streaming
+      if (proc.stdout) {
+        proc.stdout.setEncoding('utf8');
+        let buffer = '';
+        for await (const chunk of proc.stdout) {
+          buffer += chunk;
+          const lines = buffer.split('\n');
+          buffer = lines.pop() ?? '';
+          for (const line of lines) {
+            const trimmed = line.trim();
+            if (!trimmed) continue;
+            try {
+              const event = JSON.parse(trimmed);
+              if (event.type === 'message' && event.role === 'assistant' && event.content) {
+                yield { type: 'text', content: event.content };
+              } else if (event.type === 'result') {
+                const inputTokens = event.stats?.input_tokens;
+                const outputTokens = event.stats?.output_tokens;
+                this.lastUsage = { inputTokens, outputTokens };
+                yield { type: 'done', usage: { inputTokens, outputTokens } };
+              }
+            } catch {
+              // Yield raw line if not JSON and doesn't look like warning
+              if (!trimmed.startsWith('Warning:') && !trimmed.toLowerCase().includes('ripgrep')) {
+                yield { type: 'text', content: line + '\n' };
+              }
+            }
+          }
+        }
+
+        if (buffer.trim()) {
+          const trimmed = buffer.trim();
+          try {
+            const event = JSON.parse(trimmed);
+            if (event.type === 'message' && event.role === 'assistant' && event.content) {
+              yield { type: 'text', content: event.content };
+            }
+          } catch {
+            if (!trimmed.startsWith('Warning:') && !trimmed.toLowerCase().includes('ripgrep')) {
+              yield { type: 'text', content: buffer };
+            }
+          }
+        }
+      }
+
+      const result = await proc;
+      if (result.exitCode !== 0) {
+        const stderr = String(result.stderr ?? '').toLowerCase();
         if (stderr.includes('rate limit') || stderr.includes('429') || stderr.includes('quota') || stderr.includes('limit')) {
-          const resetTime = this.parseResetTime(proc.stderr || proc.stdout || '');
+          const resetTime = this.parseResetTime(String(result.stderr || result.stdout || ''));
           this.rateLimitedUntil = resetTime ?? new Date(Date.now() + 300_000);
           yield { type: 'rate_limit' };
         } else {
-          yield { type: 'error', error: String(proc.stderr || proc.stdout || 'gemini exited non-zero') };
+          yield { type: 'error', error: String(result.stderr || result.stdout || 'gemini exited non-zero') };
         }
         return;
       }
 
-      const raw = String(proc.stdout ?? '').trim();
-      if (!raw) { yield { type: 'error', error: 'Empty response from gemini' }; return; }
-
-      let text: string;
-      let inputTokens: number | undefined;
-      let outputTokens: number | undefined;
-
-      try {
-        const parsed = JSON.parse(raw) as {
-          response?: string;
-          candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
-          usageMetadata?: { promptTokenCount?: number; candidatesTokenCount?: number };
-        };
-
-        // Gemini JSON format: { response, usageMetadata }
-        text = parsed.response
-          ?? parsed.candidates?.[0]?.content?.parts?.[0]?.text
-          ?? raw;
-        inputTokens = parsed.usageMetadata?.promptTokenCount;
-        outputTokens = parsed.usageMetadata?.candidatesTokenCount;
-        this.lastUsage = { inputTokens, outputTokens };
-      } catch {
-        text = raw;
-      }
-
-      for (const chunk of text.split(/(\s+)/)) {
-        if (chunk) yield { type: 'text', content: chunk };
-      }
-
-      yield { type: 'done', usage: { inputTokens, outputTokens } };
+      yield { type: 'done' };
       this.promptsSent++;
     } catch {
       yield* this.fallbackSimulateStream(request.prompt);
@@ -201,65 +218,19 @@ export class GeminiAdapter extends SubprocessAdapter {
 
   // ─── Private ───────────────────────────────────────────────
 
-  private async *fallbackSimulateStream(prompt: string): AsyncGenerator<StreamEvent, void, undefined> {
-    const p = prompt.toLowerCase();
-    let response = "";
+  private async *fallbackSimulateStream(_prompt: string): AsyncGenerator<StreamEvent, void, undefined> {
+    const msg = `### ⚠ Execution Engine Failed
 
-    if (p.includes('hello') || p.includes('hi')) {
-      response = "Hello! I am Gemini, active engineering intelligence inside MetaCLI. How can I assist you with your TypeScript or React workspace tasks today?";
-    } else if (p.includes('auth') || p.includes('jwt')) {
-      response = `Here is a complete JWT Authentication middleware implementation in TypeScript:
+* **Provider:** ${this.displayName}
+* **Status:** Offline or Authentication Failed
+* **Reason:** Binary not found, not logged in, or local CLI process exited abnormally.
+* **Recovery Suggestions:**
+  1. Verify the binary is installed and in your PATH.
+  2. Run \`metacli status\` to check provider health and authentication.
+  3. Ensure you have authenticated the local CLI (e.g. run \`gemini\` to authenticate or set GEMINI_API_KEY).`;
 
-\`\`\`typescript
-import { Request, Response, NextFunction } from 'express';
-import jwt from 'jsonwebtoken';
-
-export interface AuthenticatedRequest extends Request {
-  user?: any;
-}
-
-export const authenticateJWT = (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
-  const authHeader = req.headers.authorization;
-
-  if (authHeader) {
-    const token = authHeader.split(' ')[1];
-    jwt.verify(token, process.env.JWT_SECRET || 'secret-key', (err, user) => {
-      if (err) return res.sendStatus(403);
-      req.user = user;
-      next();
-    });
-  } else {
-    res.sendStatus(401);
-  }
-};
-\`\`\`
-
-Let me know if you would like me to draft corresponding auth controller handlers!`;
-    } else {
-      response = `I've analyzed your workspace context. Based on your prompt ("${prompt}"), here is the recommended approach:
-
-1. **Scan Workspace**: Ensure structural indexes are warm by running \`/reindex\`.
-2. **Examine dependencies**: Check loose modular couplings or circular imports.
-3. **Execute workflows**: Safely execute plan steps with automated checkpoints.
-
-Let me know if you would like me to draft a specific code implementation or refactor workflow step!`;
-    }
-
-    // Stream the simulated response out chunk-by-chunk for high fidelity TUI streaming!
-    const chunks = response.split(/(\s+)/);
-    for (const chunk of chunks) {
-      yield { type: 'text', content: chunk };
-      await new Promise((resolve) => setTimeout(resolve, 35));
-    }
-
-    yield {
-      type: 'done',
-      usage: {
-        inputTokens: 142,
-        outputTokens: Math.round(response.length / 4),
-        totalTokens: 142 + Math.round(response.length / 4),
-      },
-    };
+    yield { type: 'text', content: msg };
+    yield { type: 'done' };
   }
 
   private parseResetTime(errorMsg: string): Date | null {

@@ -114,7 +114,7 @@ export class SlashCommandRuntime {
     const cmd = parsed.command;
 
     // Navigation commands → open overlay
-    if (cmd.opensOverlay) {
+    if (cmd.opensOverlay && cmd.name !== 'skills' && cmd.name !== 'mcp') {
       return {
         type: 'overlay',
         overlayId: cmd.opensOverlay as OverlayId,
@@ -158,6 +158,64 @@ export class SlashCommandRuntime {
 
       case 'trace':
         return { type: 'action', action: 'trace-retrieval' };
+
+      case 'skills': {
+        const sub = parsed.args[0]?.toLowerCase();
+        if (sub === 'install' || sub === 'add') {
+          return { type: 'action', action: 'skill-install', args: parsed.args.slice(1) };
+        }
+        if (sub === 'enable') {
+          return { type: 'action', action: 'skill-enable', args: parsed.args.slice(1) };
+        }
+        if (sub === 'disable') {
+          return { type: 'action', action: 'skill-disable', args: parsed.args.slice(1) };
+        }
+        if (sub === 'remove' || sub === 'delete') {
+          return { type: 'action', action: 'skill-remove', args: parsed.args.slice(1) };
+        }
+        if (sub === 'list' || !sub) {
+          return { type: 'overlay', overlayId: 'skills' };
+        }
+        return {
+          type: 'message',
+          message: `Unknown subcommand for /skills: ${sub}. Supported subcommands: list, install, enable, disable, remove.`,
+        };
+      }
+
+      case 'skill-install':
+        return { type: 'action', action: 'skill-install', args: parsed.args };
+
+      case 'skill-remove':
+        return { type: 'action', action: 'skill-remove', args: parsed.args };
+
+      case 'skill-enable':
+        return { type: 'action', action: 'skill-enable', args: parsed.args };
+
+      case 'skill-disable':
+        return { type: 'action', action: 'skill-disable', args: parsed.args };
+
+      case 'mcp': {
+        const sub = parsed.args[0]?.toLowerCase();
+        if (sub === 'connect' || sub === 'add') {
+          return { type: 'action', action: 'mcp-connect', args: parsed.args.slice(1) };
+        }
+        if (sub === 'status' || sub === 'info') {
+          return { type: 'action', action: 'mcp-status', args: parsed.args.slice(1) };
+        }
+        if (sub === 'list' || !sub) {
+          return { type: 'overlay', overlayId: 'mcp' };
+        }
+        return {
+          type: 'message',
+          message: `Unknown subcommand for /mcp: ${sub}. Supported subcommands: list, connect, status.`,
+        };
+      }
+
+      case 'mcp-connect':
+        return { type: 'action', action: 'mcp-connect', args: parsed.args };
+
+      case 'mcp-status':
+        return { type: 'action', action: 'mcp-status', args: parsed.args };
 
       default:
         return {

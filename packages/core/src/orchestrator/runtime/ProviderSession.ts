@@ -1,16 +1,12 @@
-/**
- * MetaCLI Core — Provider Session
- *
- * Represents an active, portable connection state context with an AI provider.
- */
-
 import { randomUUID } from 'node:crypto';
 import type { ProviderTransport } from '../transports/ProviderTransport.js';
 import type { StreamEvent, PromptRequest } from '../../events/types.js';
 
+export type SessionState = 'idle' | 'acquiring' | 'active' | 'paused' | 'released' | 'failed' | 'closed';
+
 export class ProviderSession {
   readonly id = randomUUID();
-  private state: 'idle' | 'active' | 'closed' = 'idle';
+  private state: SessionState = 'idle';
   private promptsSent = 0;
   private tokenCount = 0;
 
@@ -20,7 +16,7 @@ export class ProviderSession {
   ) {}
 
   async *sendPrompt(request: PromptRequest): AsyncGenerator<StreamEvent, void, undefined> {
-    this.state = 'active';
+    this.setState('active');
     this.promptsSent++;
     try {
       for await (const event of this.transport.sendPrompt(request)) {
@@ -29,13 +25,19 @@ export class ProviderSession {
         }
         yield event;
       }
-    } finally {
-      this.state = 'idle';
+      this.setState('released');
+    } catch (err) {
+      this.setState('failed');
+      throw err;
     }
   }
 
-  getState(): 'idle' | 'active' | 'closed' {
+  getState(): SessionState {
     return this.state;
+  }
+
+  setState(state: SessionState): void {
+    this.state = state;
   }
 
   getPromptsSent(): number {

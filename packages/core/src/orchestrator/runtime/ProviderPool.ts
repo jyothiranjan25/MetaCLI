@@ -22,14 +22,15 @@ export class ProviderPool {
     providerId: string,
     transportFactory: () => ProviderTransport
   ): Promise<ProviderSession> {
-    // 1. Search for a warm, idle session (connected and not active)
+    // 1. Search for a warm, idle session (connected and not active/acquiring)
     for (const session of this.sessions.values()) {
       if (
         session.providerId === providerId &&
-        session.getState() === 'idle'
+        (session.getState() === 'idle' || session.getState() === 'released')
       ) {
         const transport = this.transports.get(session.id);
         if (transport && transport.isConnected()) {
+          session.setState('acquiring'); // Reserve immediately!
           return session;
         }
       }
@@ -39,12 +40,13 @@ export class ProviderPool {
     for (const session of this.sessions.values()) {
       if (
         session.providerId === providerId &&
-        session.getState() === 'idle'
+        (session.getState() === 'idle' || session.getState() === 'released')
       ) {
         const transport = this.transports.get(session.id);
         if (transport) {
           await transport.connect();
           if (transport.isConnected()) {
+            session.setState('acquiring'); // Reserve immediately!
             return session;
           }
         }
@@ -56,6 +58,7 @@ export class ProviderPool {
     await transport.connect();
 
     const session = new ProviderSession(providerId, transport);
+    session.setState('acquiring'); // Reserve immediately!
     this.sessions.set(session.id, session);
     this.transports.set(session.id, transport);
 
@@ -67,7 +70,7 @@ export class ProviderPool {
    * Keeps it warm/idle for future requests.
    */
   public releaseSession(session: ProviderSession): void {
-    // Just ensure it's still in the pool. It will be 'idle' in ProviderSession internal state
+    session.setState('released'); // Mark as released/reusable
     if (!this.sessions.has(session.id)) {
       this.sessions.set(session.id, session);
     }
@@ -87,7 +90,7 @@ export class ProviderPool {
    */
   public getWarmSessions(): ProviderSession[] {
     return Array.from(this.sessions.values()).filter((s) => {
-      if (s.getState() !== 'idle') return false;
+      if (s.getState() !== 'idle' && s.getState() !== 'released') return false;
       const transport = this.transports.get(s.id);
       return transport ? transport.isConnected() : false;
     });
@@ -98,7 +101,7 @@ export class ProviderPool {
    */
   public getIdleSessions(): ProviderSession[] {
     return Array.from(this.sessions.values()).filter((s) => {
-      if (s.getState() !== 'idle') return false;
+      if (s.getState() !== 'idle' && s.getState() !== 'released') return false;
       const transport = this.transports.get(s.id);
       return transport ? !transport.isConnected() : true;
     });

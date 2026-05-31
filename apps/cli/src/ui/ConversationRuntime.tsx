@@ -689,6 +689,150 @@ export function ConversationRuntime({
         } else {
           addSystemMessage('Compaction skipped: Project brain database is not indexed. Run metacli scan first.');
         }
+      } else if (result.action === 'skill-install') {
+        const id = result.args?.[0];
+        if (!id) {
+          addSystemMessage('Error: Skill ID is required for installation.');
+          return;
+        }
+        try {
+          orchestrator.getSkillRuntime().install({
+            id,
+            name: id.toUpperCase(),
+            description: `Custom user-installed skill for category ${id}`,
+            version: '1.0.0',
+            categories: [id],
+            preferredProviders: ['claude'],
+            retrievalStrategy: 'focused',
+            memoryNamespace: `skill:${id}`,
+            builtin: false,
+          });
+          
+          try {
+            const fs = await import('node:fs');
+            const path = await import('node:path');
+            const skillsDir = path.join(workingDirectory, '.metacli', 'skills');
+            if (!fs.existsSync(skillsDir)) {
+              fs.mkdirSync(skillsDir, { recursive: true });
+            }
+            fs.writeFileSync(
+              path.join(skillsDir, `${id}.json`),
+              JSON.stringify({
+                id,
+                name: id.toUpperCase(),
+                description: `Custom user-installed skill for category ${id}`,
+                version: '1.0.0',
+                categories: [id],
+                preferredProviders: ['claude'],
+                retrievalStrategy: 'focused',
+                memoryNamespace: `skill:${id}`,
+              }, null, 2),
+              'utf8'
+            );
+          } catch {}
+          
+          addSystemMessage(`Skill "${id}" installed successfully!`);
+          pushEvent(`Skill installed: ${id}`, 'good');
+        } catch (err: any) {
+          addSystemMessage(`Installation failed: ${err.message}`);
+        }
+      } else if (result.action === 'skill-enable') {
+        const id = result.args?.[0];
+        if (!id) {
+          addSystemMessage('Error: Skill ID is required.');
+          return;
+        }
+        try {
+          const res = await orchestrator.getSkillRuntime().activate(id);
+          if (res.success) {
+            try {
+              const fs = await import('node:fs');
+              const path = await import('node:path');
+              const activeSkillsPath = path.join(workingDirectory, '.metacli', 'active_skills.json');
+              const activeIds = orchestrator.getSkillRuntime().getActiveSkills().map((s: any) => s.id);
+              fs.writeFileSync(activeSkillsPath, JSON.stringify(activeIds, null, 2), 'utf8');
+            } catch {}
+            addSystemMessage(`Skill "${id}" enabled successfully!`);
+            pushEvent(`Skill enabled: ${id}`, 'good');
+          } else {
+            addSystemMessage(`Failed to enable skill "${id}": ${res.reason}`);
+          }
+        } catch (err: any) {
+          addSystemMessage(`Error enabling skill: ${err.message}`);
+        }
+      } else if (result.action === 'skill-disable') {
+        const id = result.args?.[0];
+        if (!id) {
+          addSystemMessage('Error: Skill ID is required.');
+          return;
+        }
+        try {
+          await orchestrator.getSkillRuntime().deactivate(id);
+          try {
+            const fs = await import('node:fs');
+            const path = await import('node:path');
+            const activeSkillsPath = path.join(workingDirectory, '.metacli', 'active_skills.json');
+            const activeIds = orchestrator.getSkillRuntime().getActiveSkills().map((s: any) => s.id);
+            fs.writeFileSync(activeSkillsPath, JSON.stringify(activeIds, null, 2), 'utf8');
+          } catch {}
+          addSystemMessage(`Skill "${id}" disabled successfully.`);
+          pushEvent(`Skill disabled: ${id}`, 'normal');
+        } catch (err: any) {
+          addSystemMessage(`Error disabling skill: ${err.message}`);
+        }
+      } else if (result.action === 'skill-remove') {
+        const id = result.args?.[0];
+        if (!id) {
+          addSystemMessage('Error: Skill ID is required.');
+          return;
+        }
+        try {
+          const removed = orchestrator.getSkillRuntime().remove(id);
+          if (removed) {
+            try {
+              const fs = await import('node:fs');
+              const path = await import('node:path');
+              const skillFilePath = path.join(workingDirectory, '.metacli', 'skills', `${id}.json`);
+              if (fs.existsSync(skillFilePath)) {
+                fs.unlinkSync(skillFilePath);
+              }
+              const activeSkillsPath = path.join(workingDirectory, '.metacli', 'active_skills.json');
+              const activeIds = orchestrator.getSkillRuntime().getActiveSkills().map((s: any) => s.id);
+              fs.writeFileSync(activeSkillsPath, JSON.stringify(activeIds, null, 2), 'utf8');
+            } catch {}
+            addSystemMessage(`Skill "${id}" removed successfully.`);
+            pushEvent(`Skill removed: ${id}`, 'normal');
+          } else {
+            addSystemMessage(`Skill "${id}" cannot be removed (it may be a builtin skill).`);
+          }
+        } catch (err: any) {
+          addSystemMessage(`Error removing skill: ${err.message}`);
+        }
+      } else if (result.action === 'mcp-connect') {
+        const id = result.args?.[0];
+        if (!id) {
+          addSystemMessage('Error: MCP Server ID is required.');
+          return;
+        }
+        try {
+          const success = await orchestrator.getMcpRuntime().connect(id);
+          if (success) {
+            addSystemMessage(`MCP Server "${id}" connected successfully! Real capability discovery updated.`);
+            pushEvent(`MCP server connected: ${id}`, 'good');
+          } else {
+            addSystemMessage(`Failed to connect to MCP server "${id}". Check logs or configuration.`);
+          }
+        } catch (err: any) {
+          addSystemMessage(`Error connecting MCP: ${err.message}`);
+        }
+      } else if (result.action === 'mcp-status') {
+        try {
+          const statuses = orchestrator.getMcpRuntime().getStatus();
+          const listStr = statuses.map((s: any) => `• **${s.name}** (${s.status})`).join('\n');
+          addSystemMessage(`### MCP Servers Connection Status\n${listStr || 'No MCP servers configured.'}`);
+        } catch (err: any) {
+          addSystemMessage(`Error fetching MCP status: ${err.message}`);
+        }
       } else {
         addSystemMessage(`Executed ${result.action}.`);
       }

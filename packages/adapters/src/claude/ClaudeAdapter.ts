@@ -105,77 +105,66 @@ export class ClaudeAdapter extends SubprocessAdapter {
       }
 
       const args = this.buildArgs(request);
-
-      // Use execa directly (buffered) because spawn() sets buffer:false for streaming.
-      // --output-format json gives a single clean JSON result — no stream-json/--verbose noise.
-      // stdin: 'ignore' is CRITICAL — claude waits 3s for stdin before proceeding without it.
-      const proc = await execa(detection.binaryPath, args, {
+      const proc = this.spawn(args, {
         cwd: request.workingDirectory,
         timeout: request.timeout ?? 300_000,
-        env: { ...process.env, NO_COLOR: '1' },
-        stdin: 'ignore',
-        reject: false,
+        disableColors: true,
       });
 
-      if (proc.exitCode !== 0) {
-        const stderr = String(proc.stderr ?? '').toLowerCase();
+      // Real progressive stdout streaming
+      if (proc.stdout) {
+        proc.stdout.setEncoding('utf8');
+        let buffer = '';
+        for await (const chunk of proc.stdout) {
+          buffer += chunk;
+          const lines = buffer.split('\n');
+          buffer = lines.pop() ?? '';
+          for (const line of lines) {
+            const trimmed = line.trim();
+            if (!trimmed) continue;
+            try {
+              const event = JSON.parse(trimmed);
+              if (event.type === 'text') {
+                yield { type: 'text', content: event.content };
+              } else if (event.type === 'done') {
+                const inputTokens = event.usage?.input_tokens;
+                const outputTokens = event.usage?.output_tokens;
+                this.lastUsage = { inputTokens, outputTokens };
+                yield { type: 'done', usage: { inputTokens, outputTokens } };
+              }
+            } catch {
+              // Yield raw line if not JSON
+              yield { type: 'text', content: line + '\n' };
+            }
+          }
+        }
+        
+        if (buffer.trim()) {
+          try {
+            const event = JSON.parse(buffer.trim());
+            if (event.type === 'text') {
+              yield { type: 'text', content: event.content };
+            }
+          } catch {
+            yield { type: 'text', content: buffer };
+          }
+        }
+      }
+
+      const result = await proc;
+      if (result.exitCode !== 0) {
+        const stderr = String(result.stderr ?? '').toLowerCase();
         if (stderr.includes('rate limit') || stderr.includes('429') || stderr.includes('limit')) {
-          const resetTime = this.parseResetTime(proc.stderr || proc.stdout || '');
+          const resetTime = this.parseResetTime(String(result.stderr || result.stdout || ''));
           this.rateLimitedUntil = resetTime ?? new Date(Date.now() + 300_000);
           yield { type: 'rate_limit' };
         } else {
-          yield { type: 'error', error: String(proc.stderr || proc.stdout || 'claude exited non-zero') };
+          yield { type: 'error', error: String(result.stderr || result.stdout || 'claude exited non-zero') };
         }
         return;
       }
 
-      const raw = String(proc.stdout ?? '').trim();
-      if (!raw) {
-        yield { type: 'error', error: 'Empty response from claude' };
-        return;
-      }
-
-      // Parse the JSON result envelope
-      let text: string;
-      let usage: StreamEvent & { type: 'done' };
-      try {
-        const parsed = JSON.parse(raw) as {
-          result?: string;
-          is_error?: boolean;
-          usage?: { input_tokens?: number; output_tokens?: number };
-        };
-
-        if (parsed.is_error) {
-          const errorMsg = parsed.result ?? 'Claude returned an error';
-          const isRateLimit = raw.includes('429') || raw.toLowerCase().includes('rate limit') || raw.toLowerCase().includes('session limit');
-          if (isRateLimit) {
-            const resetTime = this.parseResetTime(errorMsg);
-            this.rateLimitedUntil = resetTime ?? new Date(Date.now() + 300_000);
-            yield { type: 'rate_limit' };
-          } else {
-            yield { type: 'error', error: errorMsg };
-          }
-          return;
-        }
-
-        text = parsed.result ?? raw;
-        const inputTokens = parsed.usage?.input_tokens;
-        const outputTokens = parsed.usage?.output_tokens;
-        this.lastUsage = { inputTokens, outputTokens };
-        usage = { type: 'done', usage: { inputTokens, outputTokens } };
-      } catch {
-        // Not JSON — plain text response
-        text = raw;
-        usage = { type: 'done' };
-      }
-
-      // Yield text in word-sized chunks so the UI can stream progressively
-      const words = text.split(/(\s+)/);
-      for (const chunk of words) {
-        if (chunk) yield { type: 'text', content: chunk };
-      }
-
-      yield usage;
+      yield { type: 'done' };
       this.promptsSent++;
     } catch (error) {
       yield* this.fallbackSimulateStream(request.prompt);
@@ -233,7 +222,9 @@ export class ClaudeAdapter extends SubprocessAdapter {
   private buildArgs(request: PromptRequest): string[] {
     const args: string[] = [
       '-p',
-      '--output-format', 'json',  // stream-json requires --verbose; json is clean
+      '--output-format',
+      'stream-json',
+      '--verbose',
     ];
 
     if (request.systemPrompt) {
@@ -245,68 +236,27 @@ export class ClaudeAdapter extends SubprocessAdapter {
     }
 
     args.push(request.prompt);
+
+    if (request.files && request.files.length > 0) {
+      args.push(...request.files);
+    }
+
     return args;
   }
 
-  private async *fallbackSimulateStream(prompt: string): AsyncGenerator<StreamEvent, void, undefined> {
-    const p = prompt.toLowerCase();
-    let response = "";
+  private async *fallbackSimulateStream(_prompt: string): AsyncGenerator<StreamEvent, void, undefined> {
+    const msg = `### ⚠ Execution Engine Failed
 
-    if (p.includes('hello') || p.includes('hi')) {
-      response = "Hello! I am Claude, active engineering intelligence inside MetaCLI. How can I assist you with your TypeScript or React workspace tasks today?";
-    } else if (p.includes('auth') || p.includes('jwt')) {
-      response = `Here is a complete JWT Authentication middleware implementation in TypeScript:
+* **Provider:** ${this.displayName}
+* **Status:** Offline or Authentication Failed
+* **Reason:** Binary not found, not logged in, or local CLI process exited abnormally.
+* **Recovery Suggestions:**
+  1. Verify the binary is installed and in your PATH.
+  2. Run \`metacli status\` to check provider health and authentication.
+  3. Ensure you have authenticated the local CLI (e.g. run \`claude login\` or set ANTHROPIC_API_KEY).`;
 
-\`\`\`typescript
-import { Request, Response, NextFunction } from 'express';
-import jwt from 'jsonwebtoken';
-
-export interface AuthenticatedRequest extends Request {
-  user?: any;
-}
-
-export const authenticateJWT = (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
-  const authHeader = req.headers.authorization;
-
-  if (authHeader) {
-    const token = authHeader.split(' ')[1];
-    jwt.verify(token, process.env.JWT_SECRET || 'secret-key', (err, user) => {
-      if (err) return res.sendStatus(403);
-      req.user = user;
-      next();
-    });
-  } else {
-    res.sendStatus(401);
-  }
-};
-\`\`\`
-
-Let me know if you would like me to draft corresponding auth controller handlers!`;
-    } else {
-      response = `I've analyzed your workspace context. Based on your prompt ("${prompt}"), here is the recommended approach:
-
-1. **Scan Workspace**: Ensure structural indexes are warm by running \`/reindex\`.
-2. **Examine dependencies**: Check loose modular couplings or circular imports.
-3. **Execute workflows**: Safely execute plan steps with automated checkpoints.
-
-Let me know if you would like me to draft a specific code implementation or refactor workflow step!`;
-    }
-
-    // Stream the simulated response out chunk-by-chunk for high fidelity TUI streaming!
-    const chunks = response.split(/(\s+)/);
-    for (const chunk of chunks) {
-      yield { type: 'text', content: chunk };
-      await new Promise((resolve) => setTimeout(resolve, 35));
-    }
-
-    yield {
-      type: 'done',
-      usage: {
-        inputTokens: 142,
-        outputTokens: Math.round(response.length / 4),
-        totalTokens: 142 + Math.round(response.length / 4),
-      },
-    };
+    yield { type: 'text', content: msg };
+    yield { type: 'done' };
   }
 
   private parseResetTime(errorMsg: string): Date | null {

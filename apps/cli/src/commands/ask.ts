@@ -47,6 +47,9 @@ export async function askCommand(prompt: string, options: AskCommandOptions): Pr
       console.warn(`   Routing to best available provider instead.\n`);
     }
 
+    const { Readable } = await import('node:stream');
+    const dummyStdin = new Readable({ read() {} });
+
     // exitOnCtrlC:false — let AskView's own Ctrl+C handler control exit
     const { waitUntilExit } = render(
       React.createElement(AskView, {
@@ -59,7 +62,10 @@ export async function askCommand(prompt: string, options: AskCommandOptions): Pr
         systemPrompt: options.system,
         verbose: options.verbose ?? false,
       }),
-      { exitOnCtrlC: false },
+      {
+        exitOnCtrlC: false,
+        stdin: process.stdin.isTTY ? process.stdin : (dummyStdin as any),
+      },
     );
 
     await waitUntilExit();

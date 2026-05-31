@@ -15,7 +15,7 @@ import type { HealthStatus } from '../../events/types.js';
 export interface PersistentSessionRecord {
   id: string;
   providerId: string;
-  state: 'idle' | 'active' | 'closed';
+  state: string;
   promptsSent: number;
   tokenCount: number;
   updatedAt: string;
@@ -55,7 +55,7 @@ export class SessionPersistenceEngine {
   public saveSession(
     id: string,
     providerId: string,
-    state: 'idle' | 'active' | 'closed',
+    state: string,
     promptsSent: number,
     tokenCount: number
   ): void {

@@ -64,17 +64,20 @@ export class FallbackEngine {
       // Let the UI know which provider was selected before waiting for the response
       yield { type: 'routing_complete', provider: adapter.id, fallbacks };
 
+      let streamSource: ProviderSession | undefined;
       try {
+        if (this.runtimeManager) {
+          streamSource = await this.runtimeManager.acquireSession(adapter.id);
+        }
+
+        const promptSource = streamSource || adapter;
+
         // Attempt to stream from this provider
         const startTime = Date.now();
         let hasOutput = false;
         let rateLimited = false;
 
-        const streamSource = this.runtimeManager
-          ? await this.runtimeManager.acquireSession(adapter.id)
-          : adapter;
-
-        for await (const event of streamSource.sendPrompt(request)) {
+        for await (const event of promptSource.sendPrompt(request)) {
           // Check for rate limit events
           if (event.type === 'rate_limit') {
             rateLimited = true;
@@ -145,8 +148,15 @@ export class FallbackEngine {
           yield { ...event, provider: adapter.id, fallbacks };
 
           if (event.type === 'done') {
+            // Success — record good outcome
+            this.router.recordOutcome(adapter.id, {
+              success: true,
+              rateLimited: false,
+              durationMs: Date.now() - startTime,
+            });
+
             // Record token usage if persistent session
-            if (this.runtimeManager && streamSource instanceof ProviderSession) {
+            if (this.runtimeManager && streamSource) {
               const inputTokens = Math.ceil((request.prompt.length + (request.systemPrompt?.length ?? 0)) / 4);
               const outputTokens = streamSource.getTokenCount();
               this.runtimeManager.recordTokenUsage(
@@ -164,23 +174,21 @@ export class FallbackEngine {
                 request.files,
                 request.workingDirectory
               );
-              this.runtimeManager.releaseSession(streamSource);
             }
-
-            // Success — record good outcome
-            this.router.recordOutcome(adapter.id, {
-              success: true,
-              rateLimited: false,
-              durationMs: Date.now() - startTime,
-            });
             return;
           }
         }
 
         // If we got here without hitting rate_limit/error, the stream ended normally
         if (hasOutput && !rateLimited) {
+          this.router.recordOutcome(adapter.id, {
+            success: true,
+            rateLimited: false,
+            durationMs: Date.now() - startTime,
+          });
+
           // Record token usage if persistent session
-          if (this.runtimeManager && streamSource instanceof ProviderSession) {
+          if (this.runtimeManager && streamSource) {
             const inputTokens = Math.ceil((request.prompt.length + (request.systemPrompt?.length ?? 0)) / 4);
             const outputTokens = streamSource.getTokenCount();
             this.runtimeManager.recordTokenUsage(
@@ -198,14 +206,7 @@ export class FallbackEngine {
               request.files,
               request.workingDirectory
             );
-            this.runtimeManager.releaseSession(streamSource);
           }
-
-          this.router.recordOutcome(adapter.id, {
-            success: true,
-            rateLimited: false,
-            durationMs: Date.now() - startTime,
-          });
           return;
         }
       } catch (error) {
@@ -233,6 +234,10 @@ export class FallbackEngine {
         });
 
         excluded.add(adapter.id);
+      } finally {
+        if (this.runtimeManager && streamSource) {
+          this.runtimeManager.releaseSession(streamSource);
+        }
       }
 
       attempts++;

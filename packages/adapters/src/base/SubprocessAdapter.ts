@@ -196,6 +196,7 @@ export abstract class SubprocessAdapter implements AIAdapter {
       timeout: options.timeout,
       // Don't buffer — we stream
       buffer: false,
+      stdin: 'ignore',
       // Inherit stderr for debugging
       stderr: options.inheritStderr ? 'inherit' : 'pipe',
     });

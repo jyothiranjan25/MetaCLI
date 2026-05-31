@@ -11,7 +11,7 @@
  */
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { Box, Text, useApp } from 'ink';
+import { Box, Text, useApp, useInput } from 'ink';
 import Spinner from 'ink-spinner';
 import type { Orchestrator, EventBus, MetaCLIEvents, StreamEvent } from '@metacli/core';
 import { createContextResolver } from '../bootstrap.js';
@@ -28,6 +28,18 @@ interface AskViewProps {
 }
 
 type ViewState = 'loading' | 'streaming' | 'complete' | 'error';
+
+interface InputHandlerProps {
+  onDismiss: () => void;
+  isActive: boolean;
+}
+
+function InputHandler({ onDismiss, isActive }: InputHandlerProps) {
+  useInput(() => {
+    onDismiss();
+  }, { isActive });
+  return null;
+}
 
 export function AskView({
   orchestrator,
@@ -48,6 +60,7 @@ export function AskView({
   const [error, setError] = useState<string>('');
   const [usage, setUsage] = useState<{ input?: number; output?: number }>({});
   const [durationMs, setDurationMs] = useState(0);
+  const [confidence, setConfidence] = useState<number | undefined>(undefined);
 
   const runPrompt = useCallback(async () => {
     const startTime = Date.now();
@@ -64,6 +77,9 @@ export function AskView({
       for await (const streamEvent of generator) {
         setProvider(streamEvent.provider);
         setFallbackCount(streamEvent.fallbackCount);
+        if (streamEvent.confidence !== undefined) {
+          setConfidence(streamEvent.confidence);
+        }
 
         const event = streamEvent.event;
 
@@ -136,9 +152,13 @@ export function AskView({
       setState('error');
     }
 
-    // Exit after a short delay to let the UI render
-    setTimeout(() => exit(), 100);
+    if (!process.stdin.isTTY) {
+      const exitTimeout = process.env.METACLI_EXIT_TIMEOUT ? parseInt(process.env.METACLI_EXIT_TIMEOUT, 10) : 1000;
+      setTimeout(() => exit(), exitTimeout);
+    }
   }, [orchestrator, prompt, preferredProvider, workingDirectory, files, systemPrompt, verbose, exit]);
+
+
 
   useEffect(() => {
     runPrompt();
@@ -211,10 +231,9 @@ export function AskView({
         </Box>
       )}
 
-      {/* Completion summary */}
       {state === 'complete' && (
         <Box flexDirection="column" marginTop={1} borderStyle="single" borderColor="gray" paddingX={1}>
-          <Box>
+          <Box marginBottom={1}>
             <Text color="green" bold>
               ✓ Complete
             </Text>
@@ -222,6 +241,16 @@ export function AskView({
               {' '}
               — {provider} — {(durationMs / 1000).toFixed(1)}s
             </Text>
+          </Box>
+          <Box flexDirection="column" marginBottom={1}>
+            <Text color="white">
+              Summary: {prompt.length > 60 ? `${prompt.slice(0, 60)}...` : prompt}
+            </Text>
+            {confidence !== undefined && (
+              <Text color="cyan">
+                Confidence: {confidence}% (System operational confidence index)
+              </Text>
+            )}
           </Box>
           {(usage.input || usage.output) && (
             <Box>
@@ -237,7 +266,18 @@ export function AskView({
               </Text>
             </Box>
           )}
+          <Box marginTop={1}>
+            <Text color="yellow" dimColor>
+              Press any key to dismiss this view...
+            </Text>
+          </Box>
         </Box>
+      )}
+      {process.stdin.isTTY && (
+        <InputHandler
+          onDismiss={exit}
+          isActive={state === 'complete' || state === 'error'}
+        />
       )}
     </Box>
   );
