@@ -48,6 +48,9 @@ import { MCPRegistry } from '../mcp/MCPRegistry.js';
 import { MCPPermissionManager } from '../mcp/MCPPermissionManager.js';
 import { MCPRuntime } from '../mcp/MCPRuntime.js';
 
+import { ProfileLoader } from '../config/ProfileLoader.js';
+import { MarkdownSkillParser } from '../skills/MarkdownSkillParser.js';
+
 export class Orchestrator {
   private router: SessionRouter;
   private fallbackEngine: FallbackEngine;
@@ -112,6 +115,15 @@ export class Orchestrator {
     eventBus?: EventBus<MetaCLIEvents>,
   ) {
     this.eventBus = eventBus ?? new EventBus<MetaCLIEvents>();
+    
+    // Load local workspace profile overrides
+    const workDir = this.config.defaultWorkingDirectory ?? process.cwd();
+    const profileLoader = new ProfileLoader();
+    const profile = profileLoader.load(workDir);
+    if (profile) {
+      this.config = profileLoader.merge(this.config);
+    }
+
     this.runtimeManager = new ProviderRuntimeManager(this.eventBus);
     this.router = new SessionRouter(this.config.routing, this.eventBus, this.runtimeManager.getPool());
     this.fallbackEngine = new FallbackEngine(this.router, this.eventBus, this.runtimeManager);
@@ -149,9 +161,8 @@ export class Orchestrator {
     this.mcpRuntime = new MCPRuntime(this.mcpRegistry, this.mcpPermissions, this.eventBus);
 
     // Auto-discover repository-specific skills and load persisted active skills
-    const workDir = this.config.defaultWorkingDirectory ?? process.cwd();
     
-    // 1. Auto-discover repository-specific custom skills (.metacli/skills/*.json)
+    // 1. Auto-discover repository-specific custom skills (.metacli/skills/*.json or *.md)
     try {
       const projectSkillsDir = path.join(workDir, '.metacli', 'skills');
       if (fs.existsSync(projectSkillsDir)) {
@@ -163,6 +174,14 @@ export class Orchestrator {
             const def = JSON.parse(content);
             if (def && def.id && def.name) {
               this.skillRegistry.install({ ...def, builtin: false });
+            }
+          } else if (file.endsWith('.md')) {
+            const skillPath = path.join(projectSkillsDir, file);
+            const content = fs.readFileSync(skillPath, 'utf8');
+            const defaultId = path.basename(file, '.md');
+            const def = MarkdownSkillParser.parse(content, defaultId);
+            if (def && def.id && def.name) {
+              this.skillRegistry.install(def);
             }
           }
         }
@@ -706,6 +725,8 @@ ${pendingWorkLines}
       const chunks = content.split(/(\s+)/);
       for (let i = 0; i < chunks.length; i++) {
         const chunk = chunks[i] || '';
+        const capSkills = this.skillRuntime.getActiveSkills().map((s) => s.id);
+        const capExplanation = `Routed to ${activeProviderName} (${routingConfidence}% confidence) — ${routingReason}`;
         yield {
           promptId,
           provider: providerId,
@@ -714,6 +735,9 @@ ${pendingWorkLines}
             content: chunk,
           },
           fallbackCount: 0,
+          confidence: routingConfidence,
+          routingExplanation: capExplanation,
+          activeSkills: capSkills,
         };
         // Brief artificial throttle for beautiful streaming feel in terminal UI
         if (i % 3 === 0) {
@@ -751,10 +775,28 @@ ${pendingWorkLines}
 
     try {
       this.loop.transition('EXECUTING');
+
+      const targetProvider = options.preferredProvider ?? adaptiveConfig.providerId;
+      const adapter = this.router.getAdapter(targetProvider);
+      const activeProviderName = adapter?.displayName.split(' ')[0] || 'Claude';
+
+      let routingReason = '';
+      if (options.preferredProvider) {
+        routingReason = `User explicitly pinned provider via options.`;
+      } else if (targetProvider === this.config.routing.preferredProvider) {
+        routingReason = `Routed by MetaCLI default provider configuration.`;
+      } else {
+        routingReason = `Cognitive intent matched semantic capability profile.`;
+      }
+
+      const routingConfidence = Math.round((this.router.getHealthSummary().get(targetProvider)?.score ?? 95));
+      const routingExplanation = `Routed to ${activeProviderName} (${routingConfidence}% confidence) — ${routingReason}`;
+      const activeSkills = this.skillRuntime.getActiveSkills().map((s) => s.id);
+
       for await (const event of this.fallbackEngine.executeWithFallback(
         promptId,
         request,
-        options.preferredProvider ?? adaptiveConfig.providerId,
+        targetProvider,
         { maxFallbacks: 3 },
       )) {
         lastProvider = event.provider;
@@ -776,6 +818,8 @@ ${pendingWorkLines}
           event: event as StreamEvent,
           fallbackCount: allFallbacks.length,
           confidence: calculatedConfidence,
+          routingExplanation,
+          activeSkills,
         };
       }
 
@@ -890,4 +934,6 @@ export interface OrchestratedStreamEvent {
   event: StreamEvent;
   fallbackCount: number;
   confidence?: number;
+  routingExplanation?: string;
+  activeSkills?: string[];
 }

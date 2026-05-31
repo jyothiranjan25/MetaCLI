@@ -4,6 +4,7 @@ import {
   BRACKETED_PASTE_START,
   createPromptBuffer,
   parseTerminalInput,
+  TerminalInputParser,
 } from './pasteInput.js';
 
 describe('paste input parsing', () => {
@@ -63,5 +64,32 @@ describe('paste input parsing', () => {
   it('correctly identifies up/down arrows after the full-sequence change', () => {
     expect(parseTerminalInput('\x1b[A')).toEqual([{ type: 'up' }]);
     expect(parseTerminalInput('\x1b[B')).toEqual([{ type: 'down' }]);
+  });
+
+  it('parses a chunked bracketed paste arriving in multiple parts', () => {
+    const parser = new TerminalInputParser();
+    // Chunk 1: Start sequence and beginning of text
+    const events1 = parser.parse(`${BRACKETED_PASTE_START}first part `);
+    expect(events1).toEqual([]); // No event emitted yet since end sequence hasn't arrived
+
+    // Chunk 2: Middle of the text
+    const events2 = parser.parse('second part ');
+    expect(events2).toEqual([]);
+
+    // Chunk 3: End of the text and final sequence
+    const events3 = parser.parse(`third part${BRACKETED_PASTE_END}`);
+    expect(events3).toEqual([
+      { type: 'text', text: 'first part second part third part', pasted: true },
+    ]);
+  });
+
+  it('handles regular keyboard keystrokes normally after a chunked paste completes', () => {
+    const parser = new TerminalInputParser();
+    parser.parse(`${BRACKETED_PASTE_START}chunked data`);
+    parser.parse(` end${BRACKETED_PASTE_END}`);
+
+    // Post-paste regular sequential keystrokes
+    expect(parser.parse('h')).toEqual([{ type: 'text', text: 'h', pasted: false }]);
+    expect(parser.parse('e')).toEqual([{ type: 'text', text: 'e', pasted: false }]);
   });
 });

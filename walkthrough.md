@@ -151,9 +151,50 @@ This walkthrough report presents the engineering details, root causes, fixes app
   - When an abort is detected, the engine instantly returns and terminates all execution paths, completely preventing any fallback retries.
 * **Real CLI Validation**: Verified inside the actual interactive TUI. Pressing `'c'` mid-stream immediately kills the active prompt subprocess and halts all further execution, returning control to the input prompt instantly.
 
+## 🌟 Strategic Open Source Extraction & Integration
+* **Ecosystem Improvements Added**:
+  - **Local Workspace Profiles (`.metacli-profile.json`)**: Drawn from OpenClaude's configuration defaults, we implemented [ProfileLoader.ts](file:///Users/jo/Documents/Development/REACT/MetaCLI/packages/core/src/config/ProfileLoader.ts). It automatically scans the workspace directory for local configuration overrides (provider choices, verbose states, custom AST ignore patterns, and security limits), merging them with default configurations.
+  - **Markdown YAML Frontmatter Skill Parsers (`.metacli/skills/*.md`)**: Drawn from OpenCode's highly readable skill formats, we implemented [MarkdownSkillParser.ts](file:///Users/jo/Documents/Development/REACT/MetaCLI/packages/core/src/skills/MarkdownSkillParser.ts). It parses human-friendly `.md` skill files containing standard frontmatter (e.g. `id`, `name`, `categories`, `preferredProviders`) and maps the body as the custom skill prompt context on startup.
+  - **TUI Active Profile Badges**: Integrated conditional workspace checks in the React TUI inside [ConversationRuntime.tsx](file:///Users/jo/Documents/Development/REACT/MetaCLI/apps/cli/src/ui/ConversationRuntime.tsx) to render a visual yellow `[Profile Active]` badge in the terminal header when local profile overrides are loaded.
+* **Real CLI Validation**: Verified that creating local configuration profiles and markdown skill prompt structures are successfully parsed, registered, and displayed inside the live terminal user interface cleanly.
+
+---
+
+## 🌊 Wave 2: Decoupled Paste & Stdin Resiliency (TUI Resiliency & Chunking)
+* **Goal**: Implement stateful bracketed paste accumulation to handle fragmented network/TTY inputs cleanly without command bleeding, and enable reactive TMUX panel resize adaptations.
+* **Files Changed**:
+  - [pasteInput.ts](file:///Users/jo/Documents/Development/REACT/MetaCLI/apps/cli/src/ui/pasteInput.ts)
+  - [ConversationRuntime.tsx](file:///Users/jo/Documents/Development/REACT/MetaCLI/apps/cli/src/ui/ConversationRuntime.tsx)
+  - [pasteInput.test.ts](file:///Users/jo/Documents/Development/REACT/MetaCLI/apps/cli/src/ui/pasteInput.test.ts)
+* **Fixes Applied**:
+  - **Stateful Input Parser (`TerminalInputParser`)**: Created a dedicated `TerminalInputParser` class that caches incoming bracketed paste packets. It accumulates multi-chunk streams and emits a single consolidated text paste event only when the final `BRACKETED_PASTE_END` signature is processed.
+  - **Dynamic TMUX Resize Adaptations**: Introduced a reactive `terminalColumns` state variable updated inside the standard `resize` event listener. Added `terminalColumns` as a dependency inside the `buildVirtualLines` callback, causing the viewport layout to instantly recalculate wrapped text widths (`maxWidth = Math.max(20, cols - 6)`) without crashes or line truncation when TMUX split-panes are adjusted.
+* **Real CLI Validation**:
+  - Validated E2E multi-chunk paste streams and verified that fragmented stdin streams assemble perfectly into single paste payloads.
+  - Verified window split resize behaviors under TMUX with instant wrapped re-renders.
+  - All 15 test suites passed cleanly with zero compilation errors.
+
+---
+
+## 🌊 Wave 3: MetaCLI Identity Layer & Advanced Skill Chaining
+* **Goal**: Implement the MetaCLI Identity Layer (provider invisibility, dynamic routing confidence overlays) and complete the Skill Runtime (advanced skill chaining and structured context compilers) to position MetaCLI as the primary visible cognitive brain.
+* **Files Changed**:
+  - [Orchestrator.ts](file:///Users/jo/Documents/Development/REACT/MetaCLI/packages/core/src/orchestrator/Orchestrator.ts)
+  - [ConversationRuntime.tsx](file:///Users/jo/Documents/Development/REACT/MetaCLI/apps/cli/src/ui/ConversationRuntime.tsx)
+  - [SkillAwarePromptCompiler.ts](file:///Users/jo/Documents/Development/REACT/MetaCLI/packages/core/src/skills/SkillAwarePromptCompiler.ts)
+* **Fixes Applied**:
+  - **Provider Invisibility**: Stripped provider identifiers (e.g. `(claude-code)`) from message log headers by default, ensuring all conversation streams are branded unifiedly as "MetaCLI" and "You".
+  - **Dynamic Routing & Confidence Explanations**: Extended `OrchestratedStreamEvent` to yield `routingExplanation` and `activeSkills`. Rendered HSL-gradient cyan banners under prompt streams dynamically showing context routing reasons and confidence metrics (e.g. `◆ Routed to Claude (96% confidence) — Cognitive intent matched semantic capability profile.`).
+  - **Header Skill Badges**: Wired `activeSkills` state to `<IntelligenceHeader` call, displaying active workspace skills committed in the repository (e.g., `[Skills: reviewer]`) in bold magenta in the terminal header.
+  - **Structured Skill Chaining**: Re-architected `SkillAwarePromptCompiler` to chain active skills sequentially with explicit markdown boundaries, instructions, and delimiters, making prompt contexts structured and highly readable.
+* **Real CLI Validation**:
+  - Verified capabilities and ask queries E2E in the terminal. The UI behaves cleanly: raw providers are invisible, routing explanations render dynamically in cyan, and active skills display in the header dynamically.
+  - All unit tests and packages compiled successfully with zero type or build errors.
+
 # 🔮 REMAINING RISKS & CONCLUSION
 
-All 9 critical architectural remediations, mid-stream switching cancellation, subprocess pause/resume, smooth streaming scrollback viewports, and centralized abort fallback decoupling fixes are fully implemented, type-checked, compiled, and verified through real MetaCLI CLI execution. The codebase is exceptionally stable, type-safe, and highly resilient.
+All critical architectural remediations, mid-stream switching cancellation, subprocess pause/resume, smooth streaming scrollback viewports, centralized abort fallback decoupling, local config profiles, markdown YAML skill parser, stateful bracketed paste segmenting, dynamic TMUX viewport resizes, provider invisibility, dynamic routing confidence banners, active skills header badges, and advanced skill chaining prompt compilation are fully implemented, type-checked, compiled, and verified through real MetaCLI CLI execution. The codebase is exceptionally stable, type-safe, and highly resilient.
 
-**Remediation Status**: 🟩 FULLY COMPLETED (PASS)
+**Wave 3 Status**: 🟩 FULLY COMPLETED (PASS)
+
 

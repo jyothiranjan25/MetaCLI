@@ -45,41 +45,78 @@ export function isLargePaste(text: string): boolean {
   return createPromptBuffer(text).isLarge;
 }
 
-export function parseTerminalInput(data: Buffer | string): TerminalInputEvent[] {
-  const text = Buffer.isBuffer(data) ? data.toString('utf8') : data;
-  if (!text) return [];
+export class TerminalInputParser {
+  private inBracketedPaste = false;
+  private pasteBuffer = '';
 
-  const events: TerminalInputEvent[] = [];
-  let remaining = text;
+  public parse(data: Buffer | string): TerminalInputEvent[] {
+    const text = Buffer.isBuffer(data) ? data.toString('utf8') : data;
+    if (!text) return [];
 
-  while (remaining.length > 0) {
-    const start = remaining.indexOf(BRACKETED_PASTE_START);
-    if (start === -1) {
-      events.push(...parseNonPasteInput(remaining));
-      break;
+    const events: TerminalInputEvent[] = [];
+    let remaining = text;
+
+    if (this.inBracketedPaste) {
+      const endIdx = remaining.indexOf(BRACKETED_PASTE_END);
+      if (endIdx === -1) {
+        // Still in bracketed paste, accumulate everything
+        this.pasteBuffer += remaining;
+        return [];
+      } else {
+        // Bracketed paste ends in this chunk
+        this.pasteBuffer += remaining.slice(0, endIdx);
+        events.push({
+          type: 'text',
+          text: this.pasteBuffer,
+          pasted: true,
+        });
+        this.inBracketedPaste = false;
+        this.pasteBuffer = '';
+        remaining = remaining.slice(endIdx + BRACKETED_PASTE_END.length);
+      }
     }
 
-    if (start > 0) {
-      events.push(...parseNonPasteInput(remaining.slice(0, start)));
+    while (remaining.length > 0) {
+      const start = remaining.indexOf(BRACKETED_PASTE_START);
+      if (start === -1) {
+        events.push(...parseNonPasteInput(remaining));
+        break;
+      }
+
+      if (start > 0) {
+        events.push(...parseNonPasteInput(remaining.slice(0, start)));
+      }
+
+      const pasteContentStart = start + BRACKETED_PASTE_START.length;
+      const end = remaining.indexOf(BRACKETED_PASTE_END, pasteContentStart);
+      if (end === -1) {
+        // Bracketed paste starts but doesn't end in this chunk
+        this.inBracketedPaste = true;
+        this.pasteBuffer = remaining.slice(pasteContentStart);
+        break;
+      }
+
+      events.push({
+        type: 'text',
+        text: remaining.slice(pasteContentStart, end),
+        pasted: true,
+      });
+      remaining = remaining.slice(end + BRACKETED_PASTE_END.length);
     }
 
-    const pasteContentStart = start + BRACKETED_PASTE_START.length;
-    const end = remaining.indexOf(BRACKETED_PASTE_END, pasteContentStart);
-    if (end === -1) {
-      // Bracketed paste start arrived but end hasn't yet — treat remainder as paste.
-      events.push({ type: 'text', text: remaining.slice(pasteContentStart), pasted: true });
-      break;
-    }
-
-    events.push({
-      type: 'text',
-      text: remaining.slice(pasteContentStart, end),
-      pasted: true,
-    });
-    remaining = remaining.slice(end + BRACKETED_PASTE_END.length);
+    return events.filter((event) => event.type !== 'text' || event.text.length > 0);
   }
 
-  return events.filter((event) => event.type !== 'text' || event.text.length > 0);
+  public reset(): void {
+    this.inBracketedPaste = false;
+    this.pasteBuffer = '';
+  }
+}
+
+export const globalParser = new TerminalInputParser();
+
+export function parseTerminalInput(data: Buffer | string): TerminalInputEvent[] {
+  return globalParser.parse(data);
 }
 
 // ─── Non-paste input parser ────────────────────────────────────────────────

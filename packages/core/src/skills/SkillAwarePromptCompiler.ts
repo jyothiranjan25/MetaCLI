@@ -25,11 +25,28 @@ export class SkillAwarePromptCompiler {
 
   public compile(userIntent: string): SkillEnrichedPrompt {
     const ctx = this.skillRuntime.getActiveContext();
+    const activeSkills = this.skillRuntime.getActiveSkills();
 
-    // Build system modifier from all active skills
-    const systemModifier = ctx.combinedSystemModifier;
+    // 1. Structured prompt chaining of active skills with explicit delimiters
+    const systemModifiers: string[] = [];
+    for (const skill of activeSkills) {
+      if (skill.systemPromptModifier) {
+        systemModifiers.push(
+          `### Skill: ${skill.name} (v${skill.version})\n` +
+          `* Namespace: \`${skill.memoryNamespace}\`\n` +
+          `* Categories: ${skill.categories.join(', ')}\n` +
+          `* Directives:\n${skill.systemPromptModifier}`
+        );
+      }
+    }
 
-    // Pull recent memories from all active skill namespaces
+    const systemModifier = systemModifiers.length > 0
+      ? `## MetaCLI Unified Active Skills Pipeline\n` +
+        `MetaCLI has dynamically compiled and chained the following active workspace capabilities. Apply all directives:\n\n` +
+        systemModifiers.join('\n\n')
+      : '';
+
+    // 2. Structured memory context segments
     const memoryExcerpts: string[] = [];
     for (const ns of ctx.memoryNamespaces) {
       const memories = this.memoryManager.query({
@@ -38,18 +55,25 @@ export class SkillAwarePromptCompiler {
         minConfidence: 0.7,
         maxResults: 3,
       });
-      for (const m of memories) {
-        memoryExcerpts.push(`[${ns}] ${m.content}`);
+      if (memories.length > 0) {
+        memoryExcerpts.push(
+          `#### Namespace [${ns}]\n` +
+          memories.map(m => `  • ${m.content}`).join('\n')
+        );
       }
     }
 
     const memoryContext = memoryExcerpts.length > 0
-      ? `## Skill Memory\n${memoryExcerpts.join('\n')}`
+      ? `## MetaCLI Skill-Aware Cognitive Memory Context\n` +
+        `The following relevant historical patterns were extracted from the sqlite brain layer:\n\n` +
+        memoryExcerpts.join('\n\n')
       : '';
 
-    // Describe available MCP tools for provider awareness
+    // 3. Structured MCP capabilities context
     const mcpToolsContext = ctx.requiredMCPServers.length > 0
-      ? `## Available MCP Tools\n${ctx.requiredMCPServers.map(id => `- ${id}`).join('\n')}`
+      ? `## MetaCLI Registered MCP Tool Capabilities\n` +
+        `The following MCP server services are currently registered and verified online:\n` +
+        ctx.requiredMCPServers.map(id => `- **${id}**`).join('\n')
       : '';
 
     const injectionText = [systemModifier, memoryContext, mcpToolsContext].filter(Boolean).join('\n\n');

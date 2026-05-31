@@ -27,6 +27,7 @@ import {
   ENABLE_BRACKETED_PASTE,
   createPromptBuffer,
   parseTerminalInput,
+  TerminalInputParser,
   type PromptBufferState,
   type TerminalInputEvent,
 } from './pasteInput.js';
@@ -54,6 +55,8 @@ interface Message {
   fallbackCount?: number;
   timestamp: Date;
   retrieval?: RetrievalVisibility;
+  routingExplanation?: string;
+  activeSkills?: string[];
 }
 
 interface CognitiveEvent {
@@ -107,6 +110,8 @@ const IntelligenceHeader = React.memo(({
   contextState,
   tokenEfficiency,
   pulse,
+  hasProfileOverride,
+  activeSkills,
 }: {
   workspace: string;
   brainWarm: boolean;
@@ -115,6 +120,8 @@ const IntelligenceHeader = React.memo(({
   contextState: string;
   tokenEfficiency: number;
   pulse: Pulse;
+  hasProfileOverride?: boolean;
+  activeSkills?: string[];
 }) => {
   const providerName = provider
     ? provider.split('-').map((s) => s.charAt(0).toUpperCase() + s.slice(1)).join(' ')
@@ -123,8 +130,12 @@ const IntelligenceHeader = React.memo(({
   return (
     <Box flexDirection="column" borderStyle="round" borderColor="cyan" paddingX={1} marginBottom={1}>
       <Box justifyContent="space-between">
-        <Box gap={1}>
+        <Box gap={1} flexWrap="wrap">
           <Text bold color="cyan">◈ MetaCLI</Text>
+          {hasProfileOverride && <Text color="yellow" bold>[Profile: Active]</Text>}
+          {activeSkills && activeSkills.length > 0 && (
+            <Text color="magenta" bold>[Skills: {activeSkills.join(', ')}]</Text>
+          )}
           <Text color="gray">|</Text>
           <Text color="white" bold>{workspace}</Text>
         </Box>
@@ -380,12 +391,17 @@ export function ConversationRuntime({
   useEffect(() => { scrollOffsetRef.current = scrollOffset; }, [scrollOffset]);
 
   const [terminalRows, setTerminalRows] = useState(process.stdout.rows || 24);
+  const [terminalColumns, setTerminalColumns] = useState(process.stdout.columns || 80);
   const terminalRowsRef = useRef(process.stdout.rows || 24);
+  const terminalColumnsRef = useRef(process.stdout.columns || 80);
   useEffect(() => {
     const onResize = () => {
       const rows = process.stdout.rows || 24;
+      const cols = process.stdout.columns || 80;
       setTerminalRows(rows);
+      setTerminalColumns(cols);
       terminalRowsRef.current = rows;
+      terminalColumnsRef.current = cols;
     };
     process.stdout.on('resize', onResize);
     return () => {
@@ -407,6 +423,8 @@ export function ConversationRuntime({
   const [streamContent, setStreamContent] = useState('');
   const [streamProvider, setStreamProvider] = useState('');
   const [streamFallback, setStreamFallback] = useState(0);
+  const [routingExplanation, setRoutingExplanation] = useState('');
+  const [activeSkills, setActiveSkills] = useState<string[]>([]);
   const [activeRetrieval, setActiveRetrieval] = useState<RetrievalVisibility | undefined>();
   const [activeOverlay, _setActiveOverlay] = useState<OverlayId>(null);
   const [showPalette, _setShowPalette] = useState(false);
@@ -442,8 +460,76 @@ export function ConversationRuntime({
       }
     }).catch(() => {});
   }, [workingDirectory]);
-  const [showContinuation, setShowContinuation] = useState(true);
+  const [showContinuation, setShowContinuation] = useState(false);
+  const [pendingWork, setPendingWork] = useState<string[]>([]);
+  const [lastSessionSummary, setLastSessionSummary] = useState('');
+  const pendingWorkRef = useRef<string[]>([]);
+  const lastSessionSummaryRef = useRef('');
+  useEffect(() => { pendingWorkRef.current = pendingWork; }, [pendingWork]);
+  useEffect(() => { lastSessionSummaryRef.current = lastSessionSummary; }, [lastSessionSummary]);
+
+  const [hasProfileOverride, setHasProfileOverride] = useState(false);
+  useEffect(() => {
+    const checkProfile = () => {
+      try {
+        const candidates = [
+          path.join(workingDirectory, '.metacli-profile.json'),
+          path.join(workingDirectory, '.metacli', 'profile.json'),
+        ];
+        setHasProfileOverride(candidates.some((f) => fs.existsSync(f)));
+      } catch {
+        // Safe check
+      }
+    };
+    checkProfile();
+  }, [workingDirectory]);
+
+  // Load real session continuity data on mount — git dirty files + last session topic.
+  // Sets showContinuation only when there's actual pending work to restore.
+  useEffect(() => {
+    let cancelled = false;
+    const loadContinuationData = async () => {
+      const gitLines: string[] = [];
+      let sessionSummary = '';
+
+      try {
+        const { execa } = await import('execa');
+        const { stdout } = await execa('git', ['status', '--short'], { cwd: workingDirectory });
+        const lines = stdout.split('\n').filter(Boolean).slice(0, 6);
+        for (const line of lines) gitLines.push(line.trim());
+      } catch { /* not a git repo or git unavailable */ }
+
+      try {
+        const { SessionPersistenceEngine } = await import('@metacli/core');
+        const persistence = new SessionPersistenceEngine();
+        try {
+          const sessions = persistence.getAllSessions();
+          if (sessions.length > 0) {
+            const history = persistence.getSessionHistory(sessions[0].id);
+            if (history.length > 0) {
+              const lastPrompt = history[history.length - 1].prompt;
+              sessionSummary = lastPrompt.length > 60 ? lastPrompt.slice(0, 60) + '…' : lastPrompt;
+            }
+          }
+        } finally {
+          persistence.close();
+        }
+      } catch { /* no session db yet */ }
+
+      if (cancelled) return;
+      if (gitLines.length > 0 || sessionSummary) {
+        setPendingWork(gitLines);
+        setLastSessionSummary(sessionSummary);
+        setShowContinuation(true);
+      }
+    };
+
+    loadContinuationData().catch(() => {});
+    return () => { cancelled = true; };
+  }, [workingDirectory]);
+
   const slashRuntime = useRef(new SlashCommandRuntime());
+  const inputParserRef = useRef(new TerminalInputParser());
   const promptBufferRef = useRef<PromptBufferState>(EMPTY_PROMPT_BUFFER);
   const inputRef = useRef('');
   // Tracks the paste base so typed additions can be isolated for display
@@ -504,24 +590,36 @@ export function ConversationRuntime({
   const streamProviderRef = useRef('');
   const streamFallbackRef = useRef(0);
   const activeRetrievalRef = useRef<RetrievalVisibility | undefined>(undefined);
+  const routingExplanationRef = useRef('');
+  const activeSkillsRef = useRef<string[]>([]);
 
   useEffect(() => { streamContentRef.current = streamContent; }, [streamContent]);
   useEffect(() => { streamProviderRef.current = streamProvider; }, [streamProvider]);
   useEffect(() => { streamFallbackRef.current = streamFallback; }, [streamFallback]);
   useEffect(() => { activeRetrievalRef.current = activeRetrieval; }, [activeRetrieval]);
+  useEffect(() => { routingExplanationRef.current = routingExplanation; }, [routingExplanation]);
+  useEffect(() => { activeSkillsRef.current = activeSkills; }, [activeSkills]);
 
   const buildVirtualLines = useCallback(() => {
     const lines: VirtualLine[] = [];
-    const cols = process.stdout.columns || 80;
-    const maxWidth = cols - 6;
+    const cols = terminalColumns;
+    const maxWidth = Math.max(20, cols - 6);
 
     if (showContinuationRef.current && messagesRef.current.length === 0) {
       lines.push({ text: `◆ Restore previous session?`, color: 'cyan', bold: true });
-      lines.push({ text: '  MetaCLI detected a warm background environment.', color: 'gray' });
-      lines.push({ text: '  Pending tasks:', color: 'gray' });
-      lines.push({ text: '    • UX shell migration', color: 'gray' });
-      lines.push({ text: '    • Overlay simplification', color: 'gray' });
-      lines.push({ text: '    • Retrieval trust surface', color: 'gray' });
+      if (lastSessionSummaryRef.current) {
+        lines.push({ text: `  Last: ${lastSessionSummaryRef.current}`, color: 'white' });
+      }
+      const pw = pendingWorkRef.current;
+      if (pw.length > 0) {
+        lines.push({ text: '  Uncommitted changes:', color: 'gray' });
+        for (const item of pw.slice(0, 5)) {
+          lines.push({ text: `    • ${item}`, color: 'gray' });
+        }
+        if (pw.length > 5) {
+          lines.push({ text: `    … and ${pw.length - 5} more`, color: 'gray' });
+        }
+      }
       lines.push({ text: '' });
       lines.push({ text: '  [Y] Continue    [N] New Session', color: 'green', bold: true });
       return lines;
@@ -542,19 +640,19 @@ export function ConversationRuntime({
       } else {
         headerText = 'system';
       }
-      
-      if (message.provider) {
-        headerText += ` (${message.provider})`;
-      }
-      if (message.fallbackCount) {
-        headerText += ` [fallback ${message.fallbackCount}]`;
-      }
 
       lines.push({
         text: headerText,
         color: message.role === 'user' ? 'magenta' : message.role === 'assistant' ? 'green' : 'gray',
         bold: true,
       });
+
+      if (message.role === 'assistant' && message.routingExplanation) {
+        lines.push({
+          text: `  ◆ ${message.routingExplanation}`,
+          color: 'cyan',
+        });
+      }
 
       const wrappedContent = wrapText(message.content, maxWidth);
       for (const wLine of wrappedContent) {
@@ -580,18 +678,19 @@ export function ConversationRuntime({
 
     if (streamContentRef.current) {
       let headerText = 'MetaCLI';
-      if (streamProviderRef.current) {
-        headerText += ` (${streamProviderRef.current})`;
-      }
-      if (streamFallbackRef.current > 0) {
-        headerText += ` [fallback ${streamFallbackRef.current}]`;
-      }
 
       lines.push({
         text: headerText,
         color: 'green',
         bold: true,
       });
+
+      if (routingExplanationRef.current) {
+        lines.push({
+          text: `  ◆ ${routingExplanationRef.current}`,
+          color: 'cyan',
+        });
+      }
 
       const wrappedStream = wrapText(streamContentRef.current, maxWidth);
       for (const wLine of wrappedStream) {
@@ -616,7 +715,7 @@ export function ConversationRuntime({
     }
 
     return lines;
-  }, []);
+  }, [terminalColumns, routingExplanation, activeSkills]);
 
   const buildVirtualLinesRef = useRef(buildVirtualLines);
   useEffect(() => { buildVirtualLinesRef.current = buildVirtualLines; }, [buildVirtualLines]);
@@ -1077,6 +1176,8 @@ export function ConversationRuntime({
     setStreamContent('');
     setStreamProvider('');
     setStreamFallback(0);
+    setRoutingExplanation('');
+    routingExplanationRef.current = '';
     pushEvent('Intent analyzed', 'good');
     pushEvent('Graph-directed retrieval started', 'normal');
 
@@ -1100,6 +1201,16 @@ export function ConversationRuntime({
         setStreamFallback(streamEvent.fallbackCount);
         finalProvider = streamEvent.provider;
         finalFallback = streamEvent.fallbackCount;
+
+        if (streamEvent.routingExplanation) {
+          setRoutingExplanation(streamEvent.routingExplanation);
+          routingExplanationRef.current = streamEvent.routingExplanation;
+        }
+        if (streamEvent.activeSkills) {
+          setActiveSkills(streamEvent.activeSkills);
+          activeSkillsRef.current = streamEvent.activeSkills;
+        }
+
         if (streamEvent.provider) {
           pushEvent(`Provider routed → ${streamEvent.provider}`, 'good');
           if (streamEvent.provider !== activeProvider) {
@@ -1125,6 +1236,8 @@ export function ConversationRuntime({
         fallbackCount: finalFallback,
         timestamp: new Date(),
         retrieval,
+        routingExplanation: routingExplanationRef.current || undefined,
+        activeSkills: activeSkillsRef.current.length > 0 ? activeSkillsRef.current : undefined,
       }]);
       pushEvent('Workflow checkpoint created', 'good');
     } catch (err) {
@@ -1379,7 +1492,7 @@ export function ConversationRuntime({
     const onData = (data: Buffer) => {
       dbg(`[DATA] hex=${data.toString('hex')} len=${data.length} processing=${String(isProcessingRef.current)}`);
       
-      const parsedEvents = parseTerminalInput(data);
+      const parsedEvents = inputParserRef.current.parse(data);
 
       if (isProcessingRef.current) {
         // Intercept hotkey events during prompt execution
@@ -1427,6 +1540,8 @@ export function ConversationRuntime({
         contextState={indexedFiles > 0 ? 'Optimized' : 'Warming'}
         tokenEfficiency={tokenEfficiency}
         pulse={pulse}
+        hasProfileOverride={hasProfileOverride}
+        activeSkills={activeSkills}
       />
 
       {showPalette && (

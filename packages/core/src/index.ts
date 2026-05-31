@@ -49,6 +49,7 @@ export { TokenAccountingEngine } from './orchestrator/runtime/TokenAccountingEng
 
 // Config
 export { ConfigLoader, ConfigValidationError } from './config/ConfigLoader.js';
+export { ProfileLoader, type MetaCLIProfile } from './config/ProfileLoader.js';
 export {
   MetaCLIConfigSchema,
   ProviderConfigSchema,
@@ -354,6 +355,7 @@ export {
   type SkillStatus,
   type RetrievalStrategy,
 } from './skills/SkillRegistry.js';
+export { MarkdownSkillParser } from './skills/MarkdownSkillParser.js';
 export {
   SkillRuntime,
   type ActiveSkillContext,
