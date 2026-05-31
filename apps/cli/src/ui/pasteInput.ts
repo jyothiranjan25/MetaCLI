@@ -136,9 +136,9 @@ function parseNonPasteInput(input: string): TerminalInputEvent[] {
     if (char === '\x1b') {
       // Consume the FULL escape sequence so its tail bytes never bleed into text.
       const seq = consumeEscapeSequence(input, index);
-      if (seq === '\x1b[A') {
+      if (seq === '\x1b[A' || seq === '\x1bOA') {
         events.push({ type: 'up' });
-      } else if (seq === '\x1b[B') {
+      } else if (seq === '\x1b[B' || seq === '\x1bOB') {
         events.push({ type: 'down' });
       } else if (seq === '\x1b[5~') {
         events.push({ type: 'pageup' });

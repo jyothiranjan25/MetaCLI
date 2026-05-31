@@ -425,6 +425,7 @@ export function ConversationRuntime({
   const [streamFallback, setStreamFallback] = useState(0);
   const [routingExplanation, setRoutingExplanation] = useState('');
   const [activeSkills, setActiveSkills] = useState<string[]>([]);
+  const [continuationMessages, setContinuationMessages] = useState<Message[]>([]);
   const [activeRetrieval, setActiveRetrieval] = useState<RetrievalVisibility | undefined>();
   const [activeOverlay, _setActiveOverlay] = useState<OverlayId>(null);
   const [showPalette, _setShowPalette] = useState(false);
@@ -491,6 +492,7 @@ export function ConversationRuntime({
     const loadContinuationData = async () => {
       const gitLines: string[] = [];
       let sessionSummary = '';
+      const historicalMessages: Message[] = [];
 
       try {
         const { execa } = await import('execa');
@@ -504,11 +506,67 @@ export function ConversationRuntime({
         const persistence = new SessionPersistenceEngine();
         try {
           const sessions = persistence.getAllSessions();
-          if (sessions.length > 0) {
-            const history = persistence.getSessionHistory(sessions[0].id);
+          const workspaceSessions = sessions.filter((s) => {
+            const hist = persistence.getSessionHistory(s.id);
+            return hist.some((h) => h.workingDirectory === workingDirectory);
+          });
+          if (workspaceSessions.length > 0) {
+            const mostRecent = workspaceSessions[0];
+            const history = persistence.getSessionHistory(mostRecent.id);
             if (history.length > 0) {
               const lastPrompt = history[history.length - 1].prompt;
               sessionSummary = lastPrompt.length > 60 ? lastPrompt.slice(0, 60) + '…' : lastPrompt;
+
+              // Query hot memories from brain database to reconstruct assistant responses
+              const parsedMemoriesMap = new Map<string, string>();
+              try {
+                const { BrainStore } = await import('@metacli/brain');
+                const store = new BrainStore(workingDirectory);
+                try {
+                  const hotMemories = store.getMemoriesByLayer('hot');
+                  for (const mem of hotMemories) {
+                    const parsed = parseHotMemory(mem.content);
+                    if (parsed) {
+                      parsedMemoriesMap.set(parsed.prompt.trim().toLowerCase(), parsed.response);
+                    }
+                  }
+                } finally {
+                  store.close();
+                }
+              } catch { /* brain db unreadable */ }
+
+              // Stitch historical prompts and responses sequentially
+              for (let i = 0; i < history.length; i++) {
+                const histItem = history[i];
+                const timestamp = new Date(histItem.timestamp);
+
+                // 1. User Prompt Message
+                historicalMessages.push({
+                  id: `hist-user-${i}-${timestamp.getTime()}`,
+                  role: 'user',
+                  content: histItem.prompt,
+                  timestamp,
+                });
+
+                // 2. Assistant Response Message (reconstructed or stitch warning)
+                const promptKey = histItem.prompt.trim().toLowerCase();
+                const responseText = parsedMemoriesMap.get(promptKey);
+                if (responseText) {
+                  historicalMessages.push({
+                    id: `hist-ai-${i}-${timestamp.getTime() + 500}`,
+                    role: 'assistant',
+                    content: responseText,
+                    timestamp: new Date(timestamp.getTime() + 500),
+                  });
+                } else {
+                  historicalMessages.push({
+                    id: `hist-ai-stitch-${i}-${timestamp.getTime() + 500}`,
+                    role: 'assistant',
+                    content: `[Previous Context Stitched] MetaCLI successfully restored session context for this turn.`,
+                    timestamp: new Date(timestamp.getTime() + 500),
+                  });
+                }
+              }
             }
           }
         } finally {
@@ -520,6 +578,7 @@ export function ConversationRuntime({
       if (gitLines.length > 0 || sessionSummary) {
         setPendingWork(gitLines);
         setLastSessionSummary(sessionSummary);
+        setContinuationMessages(historicalMessages);
         setShowContinuation(true);
       }
     };
@@ -592,6 +651,7 @@ export function ConversationRuntime({
   const activeRetrievalRef = useRef<RetrievalVisibility | undefined>(undefined);
   const routingExplanationRef = useRef('');
   const activeSkillsRef = useRef<string[]>([]);
+  const continuationMessagesRef = useRef<Message[]>([]);
 
   useEffect(() => { streamContentRef.current = streamContent; }, [streamContent]);
   useEffect(() => { streamProviderRef.current = streamProvider; }, [streamProvider]);
@@ -599,6 +659,7 @@ export function ConversationRuntime({
   useEffect(() => { activeRetrievalRef.current = activeRetrieval; }, [activeRetrieval]);
   useEffect(() => { routingExplanationRef.current = routingExplanation; }, [routingExplanation]);
   useEffect(() => { activeSkillsRef.current = activeSkills; }, [activeSkills]);
+  useEffect(() => { continuationMessagesRef.current = continuationMessages; }, [continuationMessages]);
 
   const buildVirtualLines = useCallback(() => {
     const lines: VirtualLine[] = [];
@@ -719,6 +780,22 @@ export function ConversationRuntime({
 
   const buildVirtualLinesRef = useRef(buildVirtualLines);
   useEffect(() => { buildVirtualLinesRef.current = buildVirtualLines; }, [buildVirtualLines]);
+
+  const prevTotalLines = useRef(0);
+  useLayoutEffect(() => {
+    const totalLines = buildVirtualLines().length;
+    const diff = totalLines - prevTotalLines.current;
+    const V = Math.max(8, terminalRowsRef.current - 8);
+    if (diff > 0 && scrollOffsetRef.current > 0) {
+      setScrollOffset((prev) => prev + diff);
+    } else if (scrollOffsetRef.current > 0) {
+      const maxScroll = Math.max(0, totalLines - V);
+      if (scrollOffsetRef.current > maxScroll) {
+        setScrollOffset(maxScroll);
+      }
+    }
+    prevTotalLines.current = totalLines;
+  });
 
   const pushEvent = useCallback((label: string, tone: CognitiveEvent['tone'] = 'normal') => {
     setEvents((prev) => [{ id: `${Date.now()}-${label}`, label, tone, timestamp: new Date() }, ...prev].slice(0, 32));
@@ -1301,7 +1378,7 @@ export function ConversationRuntime({
     if (showContinuationRef.current && messagesRef.current.length === 0 && event.type === 'text' && !event.pasted) {
       if (event.text.toLowerCase() === 'y') {
         setShowContinuation(false);
-        addSystemMessage('Continuing previous engineering thread.');
+        setMessages(continuationMessagesRef.current);
         pushEvent('Continuation restored', 'good');
         return;
       }
@@ -1600,4 +1677,28 @@ export function ConversationRuntime({
       )}
     </Box>
   );
+}
+
+function parseHotMemory(content: string): { prompt: string; response: string } | null {
+  const promptStartStr = 'User prompt: "';
+  const promptEndStr = '". Assistant response: "';
+  
+  const promptStartIdx = content.indexOf(promptStartStr);
+  if (promptStartIdx === -1) return null;
+  
+  const promptContentStart = promptStartIdx + promptStartStr.length;
+  const promptEndIdx = content.indexOf(promptEndStr, promptContentStart);
+  if (promptEndIdx === -1) return null;
+  
+  const promptText = content.slice(promptContentStart, promptEndIdx);
+  
+  const responseContentStart = promptEndIdx + promptEndStr.length;
+  let responseText = content.slice(responseContentStart);
+  if (responseText.endsWith('..."')) {
+    responseText = responseText.slice(0, -4);
+  } else if (responseText.endsWith('"')) {
+    responseText = responseText.slice(0, -1);
+  }
+  
+  return { prompt: promptText, response: responseText };
 }
