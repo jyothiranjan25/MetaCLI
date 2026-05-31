@@ -133,6 +133,25 @@ export class ProviderPool {
   }
 
   /**
+   * Cancel all currently active connection sessions.
+   */
+  public async cancelActiveSessions(): Promise<void> {
+    const active = this.getActiveSessions();
+    await Promise.all(
+      active.map(async (session) => {
+        const transport = this.transports.get(session.id);
+        if (transport) {
+          try {
+            await transport.cancel();
+          } catch {
+            // best effort
+          }
+        }
+      })
+    );
+  }
+
+  /**
    * Disconnect all warm/active sessions.
    */
   public async closeAll(): Promise<void> {

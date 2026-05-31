@@ -846,6 +846,13 @@ ${pendingWorkLines}
   async abort(): Promise<void> {
     if (!this.currentPromptId) return;
 
+    // Abort active sessions inside the runtime manager first
+    try {
+      await this.runtimeManager.cancelActiveSessions();
+    } catch {
+      // Best effort
+    }
+
     // Abort all adapters (the active one will respond)
     for (const adapter of this.router.getAllAdapters()) {
       try {

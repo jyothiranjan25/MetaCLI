@@ -18,6 +18,8 @@ export type TerminalInputEvent =
   | { type: 'backspace' }
   | { type: 'up' }
   | { type: 'down' }
+  | { type: 'pageup' }
+  | { type: 'pagedown' }
   | { type: 'tab' }
   | { type: 'escape' }
   | { type: 'ctrl-c' }
@@ -101,6 +103,10 @@ function parseNonPasteInput(input: string): TerminalInputEvent[] {
         events.push({ type: 'up' });
       } else if (seq === '\x1b[B') {
         events.push({ type: 'down' });
+      } else if (seq === '\x1b[5~') {
+        events.push({ type: 'pageup' });
+      } else if (seq === '\x1b[6~') {
+        events.push({ type: 'pagedown' });
       } else if (seq === '\x1b') {
         // Bare ESC key (no following sequence) — intentional dismiss.
         events.push({ type: 'escape' });

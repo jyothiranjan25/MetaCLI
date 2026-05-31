@@ -190,71 +190,71 @@ const RetrievalBlock = React.memo(({ retrieval }: { retrieval: RetrievalVisibili
   </Box>
 ));
 
+function wrapText(text: string, maxWidth: number): string[] {
+  const lines: string[] = [];
+  const rawLines = text.split(/\r?\n/);
+  for (const rawLine of rawLines) {
+    if (rawLine.length === 0) {
+      lines.push('');
+      continue;
+    }
+    const words = rawLine.split(' ');
+    let currentLine = '';
+    for (let i = 0; i < words.length; i++) {
+      const word = words[i];
+      if (currentLine.length === 0) {
+        currentLine = word;
+      } else if (currentLine.length + 1 + word.length <= maxWidth) {
+        currentLine += ' ' + word;
+      } else {
+        lines.push(currentLine);
+        currentLine = word;
+      }
+    }
+    if (currentLine.length > 0) {
+      lines.push(currentLine);
+    }
+  }
+  return lines;
+}
+
+interface VirtualLine {
+  text: string;
+  color?: string;
+  bold?: boolean;
+}
+
 const ConversationStream = React.memo(({
-  messages,
-  streamContent,
-  streamProvider,
-  streamFallback,
-  activeRetrieval,
-  showContinuation,
-  workspace,
-  indexedFiles,
-  memoryCount,
+  virtualLines,
+  scrollOffset,
+  terminalRows,
 }: {
-  messages: Message[];
-  streamContent: string;
-  streamProvider: string;
-  streamFallback: number;
-  activeRetrieval?: RetrievalVisibility;
-  showContinuation: boolean;
-  workspace: string;
-  indexedFiles: number;
-  memoryCount: number;
+  virtualLines: VirtualLine[];
+  scrollOffset: number;
+  terminalRows: number;
 }) => {
-  const visible = messages.slice(-10);
+  const V = Math.max(8, terminalRows - 8);
+  const L = virtualLines.length;
+
+  const visibleLines = L <= V
+    ? virtualLines
+    : virtualLines.slice(L - V - scrollOffset, L - scrollOffset);
 
   return (
     <Box flexDirection="column" flexGrow={1} paddingX={1} overflow="hidden">
-      {showContinuation && messages.length === 0 && (
-        <ContinuationPrompt workspace={workspace} indexedFiles={indexedFiles} memoryCount={memoryCount} />
-      )}
-
-      {!showContinuation && messages.length === 0 && (
-        <Box flexDirection="column" marginTop={1}>
-          <Text color="white">MetaCLI is observing this workspace.</Text>
-          <Text color="gray">Ask for a change, open <Text color="cyan">/map</Text>, or press <Text color="cyan">Ctrl+K</Text>.</Text>
+      {scrollOffset > 0 && (
+        <Box paddingX={1} marginBottom={0} borderStyle="single" borderColor="yellow">
+          <Text color="yellow" bold>
+            ▲ SCROLLBACK ACTIVE: {scrollOffset} lines up (Press Down Arrow / Page Down key to return to bottom)
+          </Text>
         </Box>
       )}
 
-      {visible.map((message) => (
-        <Box key={message.id} flexDirection="column" marginBottom={1}>
-          <Box gap={1}>
-            <Text bold color={message.role === 'user' ? 'magenta' : message.role === 'assistant' ? 'green' : 'gray'}>
-              {message.role === 'user' ? 'You' : message.role === 'assistant' ? 'MetaCLI' : 'system'}
-            </Text>
-            {message.provider && <Text color="gray">{message.provider}</Text>}
-            {message.fallbackCount ? <Text color="yellow">fallback {message.fallbackCount}</Text> : null}
-          </Box>
-          <Box paddingLeft={2}>
-            <Text color={message.role === 'system' ? 'gray' : 'white'}>{message.content}</Text>
-          </Box>
-          {message.retrieval && <RetrievalBlock retrieval={message.retrieval} />}
-        </Box>
+      {visibleLines.map((line, idx) => (
+        <Text key={idx} bold={line.bold} color={line.color as any}>
+          {line.text}
+        </Text>
       ))}
-
-      {streamContent && (
-        <Box flexDirection="column" marginBottom={1}>
-          <Box gap={1}>
-            <Text bold color="green">MetaCLI</Text>
-            {streamProvider && <Text color="gray">{streamProvider}</Text>}
-            {streamFallback > 0 && <Text color="yellow">fallback {streamFallback}</Text>}
-          </Box>
-          <Box paddingLeft={2}>
-            <Text>{streamContent}</Text>
-          </Box>
-          {activeRetrieval && <RetrievalBlock retrieval={activeRetrieval} />}
-        </Box>
-      )}
     </Box>
   );
 });
@@ -374,6 +374,25 @@ export function ConversationRuntime({
 
   const [input, setInput] = useState('');
   const [promptBuffer, setPromptBuffer] = useState<PromptBufferState>(EMPTY_PROMPT_BUFFER);
+  
+  const [scrollOffset, setScrollOffset] = useState(0);
+  const scrollOffsetRef = useRef(0);
+  useEffect(() => { scrollOffsetRef.current = scrollOffset; }, [scrollOffset]);
+
+  const [terminalRows, setTerminalRows] = useState(process.stdout.rows || 24);
+  const terminalRowsRef = useRef(process.stdout.rows || 24);
+  useEffect(() => {
+    const onResize = () => {
+      const rows = process.stdout.rows || 24;
+      setTerminalRows(rows);
+      terminalRowsRef.current = rows;
+    };
+    process.stdout.on('resize', onResize);
+    return () => {
+      process.stdout.off('resize', onResize);
+    };
+  }, []);
+
   const [messages, setMessages] = useState<Message[]>([]);
   const [events, setEvents] = useState<CognitiveEvent[]>([
     { id: 'boot-1', label: 'Runtime presence initialized', tone: 'good', timestamp: new Date() },
@@ -480,6 +499,127 @@ export function ConversationRuntime({
   useEffect(() => { showContinuationRef.current = showContinuation; }, [showContinuation]);
   useEffect(() => { messagesRef.current = messages; }, [messages]);
   useEffect(() => { isProcessingRef.current = isProcessing; }, [isProcessing]);
+
+  const streamContentRef = useRef('');
+  const streamProviderRef = useRef('');
+  const streamFallbackRef = useRef(0);
+  const activeRetrievalRef = useRef<RetrievalVisibility | undefined>(undefined);
+
+  useEffect(() => { streamContentRef.current = streamContent; }, [streamContent]);
+  useEffect(() => { streamProviderRef.current = streamProvider; }, [streamProvider]);
+  useEffect(() => { streamFallbackRef.current = streamFallback; }, [streamFallback]);
+  useEffect(() => { activeRetrievalRef.current = activeRetrieval; }, [activeRetrieval]);
+
+  const buildVirtualLines = useCallback(() => {
+    const lines: VirtualLine[] = [];
+    const cols = process.stdout.columns || 80;
+    const maxWidth = cols - 6;
+
+    if (showContinuationRef.current && messagesRef.current.length === 0) {
+      lines.push({ text: `◆ Restore previous session?`, color: 'cyan', bold: true });
+      lines.push({ text: '  MetaCLI detected a warm background environment.', color: 'gray' });
+      lines.push({ text: '  Pending tasks:', color: 'gray' });
+      lines.push({ text: '    • UX shell migration', color: 'gray' });
+      lines.push({ text: '    • Overlay simplification', color: 'gray' });
+      lines.push({ text: '    • Retrieval trust surface', color: 'gray' });
+      lines.push({ text: '' });
+      lines.push({ text: '  [Y] Continue    [N] New Session', color: 'green', bold: true });
+      return lines;
+    }
+
+    if (!showContinuationRef.current && messagesRef.current.length === 0) {
+      lines.push({ text: 'MetaCLI is observing this workspace.', color: 'white' });
+      lines.push({ text: 'Ask for a change, open /map, or press Ctrl+K.', color: 'gray' });
+      return lines;
+    }
+
+    for (const message of messagesRef.current) {
+      let headerText = '';
+      if (message.role === 'user') {
+        headerText = 'You';
+      } else if (message.role === 'assistant') {
+        headerText = 'MetaCLI';
+      } else {
+        headerText = 'system';
+      }
+      
+      if (message.provider) {
+        headerText += ` (${message.provider})`;
+      }
+      if (message.fallbackCount) {
+        headerText += ` [fallback ${message.fallbackCount}]`;
+      }
+
+      lines.push({
+        text: headerText,
+        color: message.role === 'user' ? 'magenta' : message.role === 'assistant' ? 'green' : 'gray',
+        bold: true,
+      });
+
+      const wrappedContent = wrapText(message.content, maxWidth);
+      for (const wLine of wrappedContent) {
+        lines.push({
+          text: '  ' + wLine,
+          color: message.role === 'system' ? 'gray' : 'white',
+        });
+      }
+
+      if (message.retrieval) {
+        lines.push({
+          text: `  ◆ Context: ${message.retrieval.tokensSaved.toLocaleString()} tokens saved (${message.retrieval.items.length} items optimized) via ${message.retrieval.source}`,
+          color: 'gray',
+        });
+        lines.push({
+          text: `  ◆ Reason: ${message.retrieval.why} • Confidence: ${message.retrieval.confidence}%`,
+          color: 'gray',
+        });
+      }
+
+      lines.push({ text: '' });
+    }
+
+    if (streamContentRef.current) {
+      let headerText = 'MetaCLI';
+      if (streamProviderRef.current) {
+        headerText += ` (${streamProviderRef.current})`;
+      }
+      if (streamFallbackRef.current > 0) {
+        headerText += ` [fallback ${streamFallbackRef.current}]`;
+      }
+
+      lines.push({
+        text: headerText,
+        color: 'green',
+        bold: true,
+      });
+
+      const wrappedStream = wrapText(streamContentRef.current, maxWidth);
+      for (const wLine of wrappedStream) {
+        lines.push({
+          text: '  ' + wLine,
+          color: 'white',
+        });
+      }
+
+      if (activeRetrievalRef.current) {
+        lines.push({
+          text: `  ◆ Context: ${activeRetrievalRef.current.tokensSaved.toLocaleString()} tokens saved (${activeRetrievalRef.current.items.length} items optimized) via ${activeRetrievalRef.current.source}`,
+          color: 'gray',
+        });
+        lines.push({
+          text: `  ◆ Reason: ${activeRetrievalRef.current.why} • Confidence: ${activeRetrievalRef.current.confidence}%`,
+          color: 'gray',
+        });
+      }
+
+      lines.push({ text: '' });
+    }
+
+    return lines;
+  }, []);
+
+  const buildVirtualLinesRef = useRef(buildVirtualLines);
+  useEffect(() => { buildVirtualLinesRef.current = buildVirtualLines; }, [buildVirtualLines]);
 
   const pushEvent = useCallback((label: string, tone: CognitiveEvent['tone'] = 'normal') => {
     setEvents((prev) => [{ id: `${Date.now()}-${label}`, label, tone, timestamp: new Date() }, ...prev].slice(0, 32));
@@ -923,6 +1063,7 @@ export function ConversationRuntime({
     setPromptText('');
     setSuggestions([]);
     setShowContinuation(false);
+    setScrollOffset(0);
 
     if (slashRuntime.current.isSlashCommand(userInput)) {
       await executeSlashCommand(userInput);
@@ -1090,15 +1231,40 @@ export function ConversationRuntime({
         }
       }
 
+      setScrollOffset(0);
       submitPromptRef.current().catch(err => pushEvent(`Submit error: ${err instanceof Error ? err.message : String(err)}`, 'warn'));
       return;
     }
-    if (event.type === 'up' && suggestionsRef.current.length > 0) {
-      setSelectedSuggestionIndex((prev) => (prev - 1 + suggestionsRef.current.length) % suggestionsRef.current.length);
+    if (event.type === 'up') {
+      if (suggestionsRef.current.length > 0) {
+        setSelectedSuggestionIndex((prev) => (prev - 1 + suggestionsRef.current.length) % suggestionsRef.current.length);
+        return;
+      }
+      const totalVirtualLines = buildVirtualLinesRef.current().length;
+      const V = Math.max(8, terminalRowsRef.current - 8);
+      if (totalVirtualLines > V) {
+        setScrollOffset((prev) => Math.min(prev + 1, totalVirtualLines - V));
+      }
       return;
     }
-    if (event.type === 'down' && suggestionsRef.current.length > 0) {
-      setSelectedSuggestionIndex((prev) => (prev + 1) % suggestionsRef.current.length);
+    if (event.type === 'down') {
+      if (suggestionsRef.current.length > 0) {
+        setSelectedSuggestionIndex((prev) => (prev + 1) % suggestionsRef.current.length);
+        return;
+      }
+      setScrollOffset((prev) => Math.max(0, prev - 1));
+      return;
+    }
+    if (event.type === 'pageup') {
+      const totalVirtualLines = buildVirtualLinesRef.current().length;
+      const V = Math.max(8, terminalRowsRef.current - 8);
+      if (totalVirtualLines > V) {
+        setScrollOffset((prev) => Math.min(prev + 5, totalVirtualLines - V));
+      }
+      return;
+    }
+    if (event.type === 'pagedown') {
+      setScrollOffset((prev) => Math.max(0, prev - 5));
       return;
     }
     if (event.type === 'tab' && activePromptText().startsWith('/') && suggestionsRef.current.length > 0) {
@@ -1230,6 +1396,13 @@ export function ConversationRuntime({
             } else if (char === 's') {
               triggerMidStreamSwitch().catch(() => {});
             }
+          } else if (
+            event.type === 'up' ||
+            event.type === 'down' ||
+            event.type === 'pageup' ||
+            event.type === 'pagedown'
+          ) {
+            handleTerminalEventRef.current(event);
           }
         }
         return;
@@ -1292,15 +1465,9 @@ export function ConversationRuntime({
       {!showPalette && !activeOverlay && (
         <Box flexGrow={1} marginTop={1}>
           <ConversationStream
-            messages={messages}
-            streamContent={streamContent}
-            streamProvider={streamProvider}
-            streamFallback={streamFallback}
-            activeRetrieval={activeRetrieval}
-            showContinuation={showContinuation}
-            workspace={workspaceName(workingDirectory)}
-            indexedFiles={indexedFiles}
-            memoryCount={memorySummaries}
+            virtualLines={buildVirtualLines()}
+            scrollOffset={scrollOffset}
+            terminalRows={terminalRows}
           />
         </Box>
       )}

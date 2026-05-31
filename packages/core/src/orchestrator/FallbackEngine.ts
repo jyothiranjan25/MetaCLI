@@ -40,115 +40,167 @@ export class FallbackEngine {
     const fallbacks: FallbackRecord[] = [];
     let attempts = 0;
 
-    while (attempts <= options.maxFallbacks) {
-      // Select a provider
-      const decision = await this.router.selectProvider({
-        prompt: request.prompt,
-        preferredProvider: attempts === 0 ? preferredProvider : undefined,
-        excludeProviders: Array.from(excluded),
-      });
-
-      const adapter = this.router.getAdapter(decision.adapterId);
-      if (!adapter) {
-        excluded.add(decision.adapterId);
-        attempts++;
-        continue;
+    let aborted = false;
+    const unsubscribeAbort = this.eventBus.on('prompt:abort', (data) => {
+      if (data.promptId === promptId) {
+        aborted = true;
       }
+    });
 
-      await this.eventBus.emit('prompt:start', {
-        promptId,
-        provider: adapter.id,
-        prompt: request.prompt,
-      });
+    try {
+      while (attempts <= options.maxFallbacks) {
+        if (aborted) return;
 
-      // Let the UI know which provider was selected before waiting for the response
-      yield { type: 'routing_complete', provider: adapter.id, fallbacks };
+        // Select a provider
+        const decision = await this.router.selectProvider({
+          prompt: request.prompt,
+          preferredProvider: attempts === 0 ? preferredProvider : undefined,
+          excludeProviders: Array.from(excluded),
+        });
 
-      let streamSource: ProviderSession | undefined;
-      try {
-        if (this.runtimeManager) {
-          streamSource = await this.runtimeManager.acquireSession(adapter.id);
+        const adapter = this.router.getAdapter(decision.adapterId);
+        if (!adapter) {
+          excluded.add(decision.adapterId);
+          attempts++;
+          continue;
         }
 
-        const promptSource = streamSource || adapter;
+        await this.eventBus.emit('prompt:start', {
+          promptId,
+          provider: adapter.id,
+          prompt: request.prompt,
+        });
 
-        // Attempt to stream from this provider
-        const startTime = Date.now();
-        let hasOutput = false;
-        let rateLimited = false;
+        // Let the UI know which provider was selected before waiting for the response
+        yield { type: 'routing_complete', provider: adapter.id, fallbacks };
 
-        for await (const event of promptSource.sendPrompt(request)) {
-          // Check for rate limit events
-          if (event.type === 'rate_limit') {
-            rateLimited = true;
+        if (aborted) return;
 
-            // Record rate limit
-            this.router.recordOutcome(adapter.id, {
-              success: false,
-              rateLimited: true,
-              retryAfter: event.retryAfter
-                ? new Date(Date.now() + event.retryAfter * 1000)
-                : undefined,
-              durationMs: Date.now() - startTime,
-            });
-
-            // Fallback to next provider
-            fallbacks.push({
-              from: adapter.id,
-              to: '(selecting...)',
-              reason: 'Rate limited',
-              timestamp: new Date(),
-            });
-
-            await this.eventBus.emit('prompt:fallback', {
-              promptId,
-              from: adapter.id,
-              to: '(selecting...)',
-              reason: 'Rate limited',
-            });
-
-            excluded.add(adapter.id);
-            break;
+        let streamSource: ProviderSession | undefined;
+        try {
+          if (this.runtimeManager) {
+            streamSource = await this.runtimeManager.acquireSession(adapter.id);
           }
 
-          // Check for error events
-          if (event.type === 'error') {
-            const isRateLimit = this.isRateLimitError(event.error);
-            const isAuth = this.isAuthError(event.error);
-            const errorType = isRateLimit ? 'Rate limit' : isAuth ? 'Auth' : 'Provider';
-            const reason = `${errorType} error: ${event.error}`;
+          const promptSource = streamSource || adapter;
 
-            this.router.recordOutcome(adapter.id, {
-              success: false,
-              rateLimited: isRateLimit,
-              durationMs: Date.now() - startTime,
-              error: event.error,
-            });
+          // Attempt to stream from this provider
+          const startTime = Date.now();
+          let hasOutput = false;
+          let rateLimited = false;
 
-            fallbacks.push({
-              from: adapter.id,
-              to: '(selecting...)',
-              reason,
-              timestamp: new Date(),
-            });
+          for await (const event of promptSource.sendPrompt(request)) {
+            if (aborted) {
+              return;
+            }
 
-            await this.eventBus.emit('prompt:fallback', {
-              promptId,
-              from: adapter.id,
-              to: '(selecting...)',
-              reason,
-            });
+            // Check for rate limit events
+            if (event.type === 'rate_limit') {
+              rateLimited = true;
 
-            excluded.add(adapter.id);
-            break;
+              // Record rate limit
+              this.router.recordOutcome(adapter.id, {
+                success: false,
+                rateLimited: true,
+                retryAfter: event.retryAfter
+                  ? new Date(Date.now() + event.retryAfter * 1000)
+                  : undefined,
+                durationMs: Date.now() - startTime,
+              });
+
+              // Fallback to next provider
+              fallbacks.push({
+                from: adapter.id,
+                to: '(selecting...)',
+                reason: 'Rate limited',
+                timestamp: new Date(),
+              });
+
+              await this.eventBus.emit('prompt:fallback', {
+                promptId,
+                from: adapter.id,
+                to: '(selecting...)',
+                reason: 'Rate limited',
+              });
+
+              excluded.add(adapter.id);
+              break;
+            }
+
+            // Check for error events
+            if (event.type === 'error') {
+              if (aborted) {
+                return;
+              }
+
+              const isRateLimit = this.isRateLimitError(event.error);
+              const isAuth = this.isAuthError(event.error);
+              const errorType = isRateLimit ? 'Rate limit' : isAuth ? 'Auth' : 'Provider';
+              const reason = `${errorType} error: ${event.error}`;
+
+              this.router.recordOutcome(adapter.id, {
+                success: false,
+                rateLimited: isRateLimit,
+                durationMs: Date.now() - startTime,
+                error: event.error,
+              });
+
+              fallbacks.push({
+                from: adapter.id,
+                to: '(selecting...)',
+                reason,
+                timestamp: new Date(),
+              });
+
+              await this.eventBus.emit('prompt:fallback', {
+                promptId,
+                from: adapter.id,
+                to: '(selecting...)',
+                reason,
+              });
+
+              excluded.add(adapter.id);
+              break;
+            }
+
+            // Yield successful events
+            hasOutput = true;
+            yield { ...event, provider: adapter.id, fallbacks };
+
+            if (event.type === 'done') {
+              // Success — record good outcome
+              this.router.recordOutcome(adapter.id, {
+                success: true,
+                rateLimited: false,
+                durationMs: Date.now() - startTime,
+              });
+
+              // Record token usage if persistent session
+              if (this.runtimeManager && streamSource) {
+                const inputTokens = Math.ceil((request.prompt.length + (request.systemPrompt?.length ?? 0)) / 4);
+                const outputTokens = streamSource.getTokenCount();
+                this.runtimeManager.recordTokenUsage(
+                  adapter.id,
+                  streamSource.id,
+                  request.workingDirectory,
+                  promptId,
+                  inputTokens,
+                  outputTokens
+                );
+                this.runtimeManager.recordPrompt(
+                  streamSource.id,
+                  request.prompt,
+                  request.systemPrompt,
+                  request.files,
+                  request.workingDirectory
+                );
+              }
+              return;
+            }
           }
 
-          // Yield successful events
-          hasOutput = true;
-          yield { ...event, provider: adapter.id, fallbacks };
-
-          if (event.type === 'done') {
-            // Success — record good outcome
+          // If we got here without hitting rate_limit/error, the stream ended normally
+          if (hasOutput && !rateLimited) {
             this.router.recordOutcome(adapter.id, {
               success: true,
               rateLimited: false,
@@ -177,79 +229,54 @@ export class FallbackEngine {
             }
             return;
           }
-        }
+        } catch (error) {
+          if (aborted) {
+            return;
+          }
 
-        // If we got here without hitting rate_limit/error, the stream ended normally
-        if (hasOutput && !rateLimited) {
+          const errorMsg = error instanceof Error ? error.message : String(error);
+
           this.router.recordOutcome(adapter.id, {
-            success: true,
+            success: false,
             rateLimited: false,
-            durationMs: Date.now() - startTime,
+            durationMs: 0,
+            error: errorMsg,
           });
 
-          // Record token usage if persistent session
+          fallbacks.push({
+            from: adapter.id,
+            to: '(selecting...)',
+            reason: errorMsg,
+            timestamp: new Date(),
+          });
+
+          await this.eventBus.emit('prompt:fallback', {
+            promptId,
+            from: adapter.id,
+            to: '(selecting...)',
+            reason: errorMsg,
+          });
+
+          excluded.add(adapter.id);
+        } finally {
           if (this.runtimeManager && streamSource) {
-            const inputTokens = Math.ceil((request.prompt.length + (request.systemPrompt?.length ?? 0)) / 4);
-            const outputTokens = streamSource.getTokenCount();
-            this.runtimeManager.recordTokenUsage(
-              adapter.id,
-              streamSource.id,
-              request.workingDirectory,
-              promptId,
-              inputTokens,
-              outputTokens
-            );
-            this.runtimeManager.recordPrompt(
-              streamSource.id,
-              request.prompt,
-              request.systemPrompt,
-              request.files,
-              request.workingDirectory
-            );
+            this.runtimeManager.releaseSession(streamSource);
           }
-          return;
         }
-      } catch (error) {
-        const errorMsg = error instanceof Error ? error.message : String(error);
 
-        this.router.recordOutcome(adapter.id, {
-          success: false,
-          rateLimited: false,
-          durationMs: 0,
-          error: errorMsg,
-        });
-
-        fallbacks.push({
-          from: adapter.id,
-          to: '(selecting...)',
-          reason: errorMsg,
-          timestamp: new Date(),
-        });
-
-        await this.eventBus.emit('prompt:fallback', {
-          promptId,
-          from: adapter.id,
-          to: '(selecting...)',
-          reason: errorMsg,
-        });
-
-        excluded.add(adapter.id);
-      } finally {
-        if (this.runtimeManager && streamSource) {
-          this.runtimeManager.releaseSession(streamSource);
-        }
+        attempts++;
       }
 
-      attempts++;
+      // All fallbacks exhausted
+      yield {
+        type: 'error',
+        error: `All providers exhausted after ${attempts} attempts. Fallback history: ${JSON.stringify(fallbacks)}`,
+        provider: 'none',
+        fallbacks,
+      };
+    } finally {
+      unsubscribeAbort();
     }
-
-    // All fallbacks exhausted
-    yield {
-      type: 'error',
-      error: `All providers exhausted after ${attempts} attempts. Fallback history: ${JSON.stringify(fallbacks)}`,
-      provider: 'none',
-      fallbacks,
-    };
   }
 
   private isAuthError(errorMessage: string): boolean {

@@ -110,8 +110,50 @@ This walkthrough report presents the engineering details, root causes, fixes app
 
 ---
 
+---
+
+## 🎮 Mid-Stream Cancellation & Switching Provider Verification
+* **Behavior Verification**: When switching providers mid-stream (using the `'s'` hotkey in the interactive terminal runtime), MetaCLI must abort and clean up the active provider's pending request before initiating the new session.
+* **Mechanism**:
+  - The `'s'` hotkey intercepts terminal input during stream execution and triggers `triggerMidStreamSwitch()` inside [ConversationRuntime.tsx](file:///Users/jo/Documents/Development/REACT/MetaCLI/apps/cli/src/ui/ConversationRuntime.tsx#L898-L915).
+  - First, it calls `await orchestrator.abort()`, which cleanly terminates active warm session subprocesses in [ProviderPool.ts](file:///Users/jo/Documents/Development/REACT/MetaCLI/packages/core/src/orchestrator/runtime/ProviderPool.ts#L138-L152) using native `kill()` signals.
+  - After aborting, it swaps `activeProvider` (e.g., from `claude-code` to `gemini-cli`) and calls `submitPrompt(lastPrompt)` to launch a warm session for the target provider.
+* **Real CLI Validation**: Mid-stream provider switching successfully terminates the active provider's request instantly and shifts input focus to the new provider cleanly without overlap.
+
+---
+
+## ⏸️ Under-the-Hood: Subprocess Pause & Resume Mechanism
+* **Pause (`SIGSTOP`)**:
+  - When the user presses the `'p'` hotkey to pause, the TUI invokes `togglePause()` inside [ConversationRuntime.tsx](file:///Users/jo/Documents/Development/REACT/MetaCLI/apps/cli/src/ui/ConversationRuntime.tsx#L878-L896).
+  - This retrieves the active session's transport from the pool and invokes `transport.pause()`.
+  - Concrete transports (e.g., [ClaudeTransport.ts](file:///Users/jo/Documents/Development/REACT/MetaCLI/packages/core/src/orchestrator/transports/ClaudeTransport.ts#L99-L103)) execute `this.process.kill('SIGSTOP')` on the running child process.
+  - `SIGSTOP` is a native OS signal that instructs the system scheduler to suspend process execution. The child process remains warm in memory, but consumes 0% CPU.
+* **Resume (`SIGCONT`)**:
+  - Pressing `'p'` again invokes `transport.resume()`.
+  - Concrete transports execute `this.process.kill('SIGCONT')` on the running child process.
+  - `SIGCONT` is a native OS signal that tells the system scheduler to resume the suspended process, letting it pick up stdout stream chunking precisely where it was paused.
+
+## 📜 Smooth Stream Scrollback & Virtual Viewport Fix
+* **Root Cause**: During active streaming prompt execution, the terminal input handler intercepted and discarded keyboard inputs (including Up/Down arrow keys) to ignore non-hotkeys. Additionally, on every new text chunk, React Ink re-rendered and rewrote the stdout buffer, which forced the terminal emulator's viewport to snap instantly back to the absolute bottom, preventing the user from scrolling up to read earlier responses.
+* **Fix Applied**:
+  - Refactored `parseTerminalInput` in [pasteInput.ts](file:///Users/jo/Documents/Development/REACT/MetaCLI/apps/cli/src/ui/pasteInput.ts) to parse Up, Down, Page Up (`\x1b[5~`), and Page Down (`\x1b[6~`) escape sequences cleanly.
+  - Allowed scroll keypress events to bypass the execution lock in the `onData` reader inside [ConversationRuntime.tsx](file:///Users/jo/Documents/Development/REACT/MetaCLI/apps/cli/src/ui/ConversationRuntime.tsx) during active streaming, enabling user control.
+  - Implemented a dynamic word-wrap helper `wrapText` and built a unified virtual lines array of the entire conversation stream history inside `ConversationRuntime.tsx`.
+  - Added a state-driven scrollback viewport in `ConversationStream` that slices visible lines based on a `scrollOffset` state. It auto-scrolls to the bottom by default, but freezes scrolling at the current view if the user scrolls up, showing a premium warning banner `▲ SCROLLBACK ACTIVE: [N] lines up (Press Down Arrow / Page Down key to return to bottom)`.
+* **Real CLI Validation**: Verified that pressing Up / Page Up keys during streaming smoothly freezes the viewport, and pressing Down / Page Down returns to the bottom and resumes real-time auto-scrolling cleanly.
+
+## 🛑 Centralized Abort Fallback Decoupling (Cancellation Loop Fix)
+* **Root Cause**: When the user pressed `'c'` or `Ctrl+C` in the actual UI, `Orchestrator.abort()` cleanly killed the active provider's transport subprocess. However, the `FallbackEngine.ts` loop caught this subprocess exit as a "standard provider stream error". Consequently, instead of stopping the active query, the Fallback Engine immediately decided to **automatically fall back to the next provider** in its pool and re-ran the prompt! This bypassed user cancellation entirely and made it seem like the UI could not be aborted.
+* **Fix Applied**:
+  - Implemented an `eventBus` listener inside [FallbackEngine.ts](file:///Users/jo/Documents/Development/REACT/MetaCLI/packages/core/src/orchestrator/FallbackEngine.ts) to intercept `prompt:abort` events for the active `promptId`.
+  - When the user triggers an abort, we immediately set a local `aborted = true` flag.
+  - Added strict `aborted` checks inside `executeWithFallback` (at the start of the retry loop, before acquiring provider sessions, during stdout generator iterations, and inside the `catch` block).
+  - When an abort is detected, the engine instantly returns and terminates all execution paths, completely preventing any fallback retries.
+* **Real CLI Validation**: Verified inside the actual interactive TUI. Pressing `'c'` mid-stream immediately kills the active prompt subprocess and halts all further execution, returning control to the input prompt instantly.
+
 # 🔮 REMAINING RISKS & CONCLUSION
 
-All 9 critical architectural remediations have been successfully implemented, type-checked, compiled, and validated through real MetaCLI CLI execution. The codebase is now highly stable, type-safe, resilient to concurrency race conditions, and completely free of session connection leaks.
+All 9 critical architectural remediations, mid-stream switching cancellation, subprocess pause/resume, smooth streaming scrollback viewports, and centralized abort fallback decoupling fixes are fully implemented, type-checked, compiled, and verified through real MetaCLI CLI execution. The codebase is exceptionally stable, type-safe, and highly resilient.
 
 **Remediation Status**: 🟩 FULLY COMPLETED (PASS)
+

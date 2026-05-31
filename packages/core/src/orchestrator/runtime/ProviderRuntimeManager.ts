@@ -173,6 +173,13 @@ export class ProviderRuntimeManager {
   }
 
   /**
+   * Cancel all active connections inside the session pool.
+   */
+  public async cancelActiveSessions(): Promise<void> {
+    await this.pool.cancelActiveSessions();
+  }
+
+  /**
    * Shutdown manager and close all pools/connections.
    */
   public async shutdown(): Promise<void> {
